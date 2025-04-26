@@ -9,6 +9,9 @@ dotenv.config();
 
 const app = express();
 
+// Trust proxy - required when behind a reverse proxy
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet()); // Security headers
 app.use(cors()); // Enable CORS

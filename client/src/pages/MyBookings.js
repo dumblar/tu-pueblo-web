@@ -44,7 +44,7 @@ const MyBookings = () => {
             setBookings(data);
             setError(null);
         } catch (error) {
-            setError('Failed to fetch bookings');
+            setError('Error al obtener las reservas');
             console.error('Error:', error);
         } finally {
             setLoading(false);
@@ -69,7 +69,7 @@ const MyBookings = () => {
             setBookings(bookings.filter(b => b.id !== selectedBooking.id));
             setError(null);
         } catch (error) {
-            setError('Failed to cancel booking');
+            setError('Error al cancelar la reserva');
             console.error('Error:', error);
         } finally {
             setLoading(false);
@@ -81,7 +81,7 @@ const MyBookings = () => {
         return (
             <Container maxWidth="lg" sx={{ mt: 4 }}>
                 <Alert severity="info">
-                    Please log in to view your bookings
+                    Por favor inicia sesión para ver tus reservas
                 </Alert>
             </Container>
         );
@@ -90,7 +90,7 @@ const MyBookings = () => {
     return (
         <Container maxWidth="lg" sx={{ mt: 4 }}>
             <Typography variant="h4" gutterBottom>
-                My Bookings
+                Mis Reservas
             </Typography>
 
             {error && (
@@ -105,7 +105,7 @@ const MyBookings = () => {
                 </Box>
             ) : bookings.length === 0 ? (
                 <Alert severity="info">
-                    You don't have any bookings yet
+                    No tienes reservas aún
                 </Alert>
             ) : (
                 <Grid container spacing={3}>
@@ -119,16 +119,16 @@ const MyBookings = () => {
                                                 {booking.origin} → {booking.destination}
                                             </Typography>
                                             <Typography color="text.secondary">
-                                                Date: {new Date(booking.reservation_date).toLocaleDateString()}
+                                                Fecha: {new Date(booking.reservation_date).toLocaleDateString()}
                                             </Typography>
                                             <Typography color="text.secondary">
-                                                Departure: {new Date(`2000-01-01T${booking.departure_time}`).toLocaleTimeString()}
+                                                Salida: {new Date(`2000-01-01T${booking.departure_time}`).toLocaleTimeString()}
                                             </Typography>
                                             <Typography color="text.secondary">
-                                                Seat: {booking.seat_number}
+                                                Asiento: {booking.seat_number}
                                             </Typography>
                                             <Typography color="text.secondary">
-                                                Price: ${booking.price}
+                                                Precio: ${booking.price}
                                             </Typography>
                                         </Grid>
                                         <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -138,12 +138,12 @@ const MyBookings = () => {
                                                     color="error"
                                                     onClick={() => handleCancelClick(booking)}
                                                 >
-                                                    Cancel Booking
+                                                    Cancelar Reserva
                                                 </Button>
                                             )}
                                             {booking.status === 'cancelled' && (
                                                 <Typography color="error">
-                                                    Cancelled
+                                                    Cancelada
                                                 </Typography>
                                             )}
                                         </Grid>
@@ -159,18 +159,18 @@ const MyBookings = () => {
                 open={cancelDialogOpen}
                 onClose={() => setCancelDialogOpen(false)}
             >
-                <DialogTitle>Cancel Booking</DialogTitle>
+                <DialogTitle>Cancelar Reserva</DialogTitle>
                 <DialogContent>
                     <Typography>
-                        Are you sure you want to cancel this booking?
+                        ¿Estás seguro de que deseas cancelar esta reserva?
                     </Typography>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setCancelDialogOpen(false)}>
-                        No, Keep Booking
+                        No, Mantener Reserva
                     </Button>
                     <Button onClick={handleCancelConfirm} color="error">
-                        Yes, Cancel Booking
+                        Sí, Cancelar Reserva
                     </Button>
                 </DialogActions>
             </Dialog>

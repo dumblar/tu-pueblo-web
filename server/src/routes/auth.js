@@ -4,13 +4,14 @@ const { body, validationResult } = require('express-validator');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../config/database');
-const { verifyGoogleToken } = require('../middleware/auth');
+const { verifyGoogleToken, verifyToken } = require('../middleware/auth');
 
 // Google OAuth login
 router.post('/google', async (req, res) => {
     try {
         const { token } = req.body;
         const payload = await verifyGoogleToken(token);
+        console.log('Google user info:', payload);
 
         // Check if user exists
         const [users] = await pool.query(
@@ -44,12 +45,41 @@ router.post('/google', async (req, res) => {
     }
 });
 
+// Get user information
+router.get('/user-info', verifyToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Get user information
+        const [users] = await pool.query(
+            'SELECT id, email, name, phone_number FROM users WHERE id = ?',
+            [userId]
+        );
+
+        if (users.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        const user = users[0];
+        res.json({
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            phoneNumber: user.phone_number
+        });
+    } catch (error) {
+        console.error('Error getting user info:', error);
+        res.status(500).json({ message: 'Failed to get user information' });
+    }
+});
+
 // Verify phone number
 router.post(
     '/verify-phone',
     [
         body('phoneNumber').matches(/^\+?[1-9]\d{1,14}$/).withMessage('Invalid phone number format'),
     ],
+    verifyToken,
     async (req, res) => {
         try {
             const errors = validationResult(req);

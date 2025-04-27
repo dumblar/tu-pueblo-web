@@ -13,22 +13,24 @@ import {
     Card,
     CardContent,
     Alert,
-    CircularProgress
+    CircularProgress,
+    Divider
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 
-const steps = ['Select Date', 'Choose Route', 'Select Seat', 'Confirm'];
+const steps = ['Seleccionar Fecha', 'Elegir Ruta y Asiento', 'Confirmar'];
 
 const Reservation = () => {
     const navigate = useNavigate();
-    const { user, login } = useAuth();
+    const { user, login, openPhoneForm, userHasPhone } = useAuth();
     const [activeStep, setActiveStep] = useState(0);
     const [selectedDate, setSelectedDate] = useState(null);
     const [routes, setRoutes] = useState([]);
     const [selectedRoute, setSelectedRoute] = useState(null);
     const [availableSeats, setAvailableSeats] = useState([]);
+    const [reservedSeats, setReservedSeats] = useState([]);
     const [selectedSeat, setSelectedSeat] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -45,10 +47,15 @@ const Reservation = () => {
             const { data } = await axios.get(
                 `${process.env.REACT_APP_API_URL}/api/routes/${selectedDate.toISOString().split('T')[0]}`
             );
-            setRoutes(data.routes || []);
-            setError(null);
+            if (data.isOperational) {
+                setRoutes(data.routes || []);
+                setError(null);
+            } else {
+                setError(`La ruta no está disponible para esta fecha: ${data.reason}`);
+                setRoutes([]);
+            }
         } catch (error) {
-            setError('Failed to fetch route availability');
+            setError('Error al obtener disponibilidad de rutas');
             console.error('Error:', error);
         } finally {
             setLoading(false);
@@ -57,23 +64,44 @@ const Reservation = () => {
 
     const handleDateSelect = (date) => {
         setSelectedDate(date);
+        setSelectedRoute(null);
+        setSelectedSeat(null);
+        setReservedSeats([]);
         setActiveStep(1);
     };
 
     const handleRouteSelect = (route) => {
         setSelectedRoute(route);
+        // Calculate reserved seats based on booked_seats
+        const reserved = [];
+        for (let i = 1; i <= route.booked_seats; i++) {
+            reserved.push(i);
+        }
+        setReservedSeats(reserved);
         setAvailableSeats(Array.from({ length: route.capacity }, (_, i) => i + 1));
-        setActiveStep(2);
     };
 
     const handleSeatSelect = (seat) => {
-        setSelectedSeat(seat);
-        setActiveStep(3);
+        if (!reservedSeats.includes(seat)) {
+            setSelectedSeat(seat);
+        }
     };
 
     const handleConfirm = async () => {
         if (!user) {
             login();
+            return;
+        }
+
+        if (!selectedRoute || !selectedSeat) {
+            setError('Por favor selecciona una ruta y un asiento');
+            return;
+        }
+
+        // Check if user has a phone number first
+        if (!userHasPhone) {
+            openPhoneForm();
+            setError('Por favor ingresa tu número de teléfono para continuar');
             return;
         }
 
@@ -93,7 +121,7 @@ const Reservation = () => {
             );
             navigate('/my-bookings');
         } catch (error) {
-            setError('Failed to create reservation');
+            setError(error.response?.data?.message || 'Error al crear la reserva');
             console.error('Error:', error);
         } finally {
             setLoading(false);
@@ -106,10 +134,10 @@ const Reservation = () => {
                 return (
                     <Box textAlign="center">
                         <Typography variant="h6" gutterBottom>
-                            Select Travel Date
+                            Selecciona la Fecha de Viaje
                         </Typography>
                         <DatePicker
-                            label="Date"
+                            label="Fecha"
                             value={selectedDate}
                             onChange={handleDateSelect}
                             minDate={new Date()}
@@ -120,83 +148,142 @@ const Reservation = () => {
 
             case 1:
                 return (
-                    <Grid container spacing={2}>
-                        {routes.map((route) => (
-                            <Grid item xs={12} md={6} key={route.id}>
-                                <Card
-                                    onClick={() => handleRouteSelect(route)}
-                                    sx={{ cursor: 'pointer' }}
-                                >
-                                    <CardContent>
-                                        <Typography variant="h6">
-                                            {route.origin} → {route.destination}
-                                        </Typography>
-                                        <Typography>
-                                            Departure: {new Date(`2000-01-01T${route.departure_time}`).toLocaleTimeString()}
-                                        </Typography>
-                                        <Typography>
-                                            Available Seats: {route.available_seats}
-                                        </Typography>
-                                        <Typography>
-                                            Price: ${route.price}
-                                        </Typography>
-                                    </CardContent>
-                                </Card>
+                    <Box>
+                        <Typography variant="h6" gutterBottom>
+                            Fecha seleccionada: {selectedDate.toLocaleDateString()}
+                        </Typography>
+
+                        {loading ? (
+                            <Box display="flex" justifyContent="center" mt={4}>
+                                <CircularProgress />
+                            </Box>
+                        ) : (
+                            <Grid container spacing={3}>
+                                {routes.map((route) => (
+                                    <Grid item xs={12} key={route.id}>
+                                        <Card
+                                            sx={{
+                                                border: selectedRoute?.id === route.id ? '2px solid #1976d2' : 'none',
+                                                cursor: 'pointer'
+                                            }}
+                                            onClick={() => handleRouteSelect(route)}
+                                        >
+                                            <CardContent>
+                                                <Typography variant="h6">
+                                                    {route.origin} → {route.destination}
+                                                </Typography>
+                                                <Typography>
+                                                    Salida: {new Date(`2000-01-01T${route.departure_time}`).toLocaleTimeString()}
+                                                </Typography>
+                                                <Typography>
+                                                    Asientos Disponibles: {route.available_seats}
+                                                </Typography>
+                                                <Typography>
+                                                    Precio: ${route.price}
+                                                </Typography>
+
+                                                {selectedRoute?.id === route.id && (
+                                                    <>
+                                                        <Divider sx={{ my: 2 }} />
+                                                        <Typography variant="subtitle1" gutterBottom>
+                                                            Selecciona un asiento:
+                                                        </Typography>
+                                                        <Grid container spacing={1}>
+                                                            {availableSeats.map((seat) => (
+                                                                <Grid item xs={2} sm={1} key={seat}>
+                                                                    <Card
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            handleSeatSelect(seat);
+                                                                        }}
+                                                                        sx={{
+                                                                            cursor: reservedSeats.includes(seat) ? 'not-allowed' : 'pointer',
+                                                                            bgcolor: reservedSeats.includes(seat)
+                                                                                ? 'grey.300'
+                                                                                : selectedSeat === seat
+                                                                                    ? 'primary.main'
+                                                                                    : 'background.paper',
+                                                                            color: selectedSeat === seat ? 'white' : 'inherit',
+                                                                            textAlign: 'center',
+                                                                            p: 1,
+                                                                            position: 'relative'
+                                                                        }}
+                                                                    >
+                                                                        <Typography>Asiento {seat}</Typography>
+                                                                        {reservedSeats.includes(seat) && (
+                                                                            <Typography
+                                                                                variant="caption"
+                                                                                sx={{
+                                                                                    position: 'absolute',
+                                                                                    top: 0,
+                                                                                    left: 0,
+                                                                                    right: 0,
+                                                                                    bgcolor: 'error.main',
+                                                                                    color: 'white',
+                                                                                    fontSize: '0.7rem',
+                                                                                    py: 0.5
+                                                                                }}
+                                                                            >
+                                                                                Reservado
+                                                                            </Typography>
+                                                                        )}
+                                                                    </Card>
+                                                                </Grid>
+                                                            ))}
+                                                        </Grid>
+                                                    </>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+                                ))}
                             </Grid>
-                        ))}
-                    </Grid>
+                        )}
+
+                        {selectedRoute && selectedSeat && (
+                            <Box mt={3} display="flex" justifyContent="center">
+                                <Button
+                                    variant="contained"
+                                    onClick={() => setActiveStep(2)}
+                                    disabled={loading}
+                                >
+                                    Continuar
+                                </Button>
+                            </Box>
+                        )}
+                    </Box>
                 );
 
             case 2:
                 return (
-                    <Grid container spacing={2}>
-                        {availableSeats.map((seat) => (
-                            <Grid item xs={3} key={seat}>
-                                <Card
-                                    onClick={() => handleSeatSelect(seat)}
-                                    sx={{
-                                        cursor: 'pointer',
-                                        bgcolor: selectedSeat === seat ? 'primary.main' : 'background.paper'
-                                    }}
-                                >
-                                    <CardContent>
-                                        <Typography align="center">Seat {seat}</Typography>
-                                    </CardContent>
-                                </Card>
-                            </Grid>
-                        ))}
-                    </Grid>
-                );
-
-            case 3:
-                return (
                     <Box>
                         <Typography variant="h6" gutterBottom>
-                            Confirm Reservation
+                            Confirmar Reserva
                         </Typography>
                         <Typography>
-                            Date: {selectedDate.toLocaleDateString()}
+                            Fecha: {selectedDate.toLocaleDateString()}
                         </Typography>
                         <Typography>
-                            Route: {selectedRoute.origin} → {selectedRoute.destination}
+                            Ruta: {selectedRoute.origin} → {selectedRoute.destination}
                         </Typography>
                         <Typography>
-                            Departure: {new Date(`2000-01-01T${selectedRoute.departure_time}`).toLocaleTimeString()}
+                            Salida: {new Date(`2000-01-01T${selectedRoute.departure_time}`).toLocaleTimeString()}
                         </Typography>
                         <Typography>
-                            Seat: {selectedSeat}
+                            Asiento: {selectedSeat}
                         </Typography>
                         <Typography>
-                            Price: ${selectedRoute.price}
+                            Precio: ${selectedRoute.price}
                         </Typography>
-                        <Button
-                            variant="contained"
-                            onClick={handleConfirm}
-                            disabled={loading}
-                            sx={{ mt: 2 }}
-                        >
-                            {loading ? <CircularProgress size={24} /> : 'Confirm Reservation'}
-                        </Button>
+                        <Box mt={3} display="flex" justifyContent="center">
+                            <Button
+                                variant="contained"
+                                onClick={handleConfirm}
+                                disabled={loading}
+                            >
+                                {loading ? <CircularProgress size={24} /> : 'Confirmar Reserva'}
+                            </Button>
+                        </Box>
                     </Box>
                 );
 
@@ -206,7 +293,12 @@ const Reservation = () => {
     };
 
     return (
-        <Container maxWidth="lg" sx={{ mt: 4 }}>
+        <Container maxWidth="md" sx={{ py: 4 }}>
+            {error && (
+                <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+                    {error}
+                </Alert>
+            )}
             <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
                 {steps.map((label) => (
                     <Step key={label}>
@@ -214,13 +306,6 @@ const Reservation = () => {
                     </Step>
                 ))}
             </Stepper>
-
-            {error && (
-                <Alert severity="error" sx={{ mb: 2 }}>
-                    {error}
-                </Alert>
-            )}
-
             {renderStepContent(activeStep)}
         </Container>
     );

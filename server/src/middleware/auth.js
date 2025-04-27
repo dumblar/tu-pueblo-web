@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
+const axios = require('axios');
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -21,13 +22,15 @@ const verifyToken = (req, res, next) => {
 
 const verifyGoogleToken = async (token) => {
     try {
-        const ticket = await client.verifyIdToken({
-            idToken: token,
-            audience: process.env.GOOGLE_CLIENT_ID
+        // Get user info from Google using the access token
+        const response = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
+            headers: { Authorization: `Bearer ${token}` }
         });
-        return ticket.getPayload();
+
+        return response.data;
     } catch (error) {
-        throw new Error('Invalid Google token');
+        console.error('Google token verification error:', error);
+        throw new Error('Failed to verify Google token');
     }
 };
 

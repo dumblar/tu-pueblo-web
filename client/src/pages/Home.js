@@ -22,7 +22,16 @@ import {
     ListItem,
     ListItemIcon,
     ListItemText,
-    Tooltip
+    Tooltip,
+    Stepper,
+    Step,
+    StepLabel,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+    IconButton,
+    InputAdornment
 } from '@mui/material';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
@@ -30,36 +39,15 @@ import LocationOnIcon from '@mui/icons-material/LocationOn';
 import PhoneIcon from '@mui/icons-material/Phone';
 import EmailIcon from '@mui/icons-material/Email';
 import InfoIcon from '@mui/icons-material/Info';
-import { DateCalendar } from '@mui/x-date-pickers';
+import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isSameMonth } from 'date-fns';
-
-// Custom Day component for the calendar
-const CustomDay = ({ day, availability, ...props }) => {
-    return (
-        <Tooltip title={availability.tooltip}>
-            <Box
-                sx={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: availability.color,
-                    color: 'white',
-                    borderRadius: '50%',
-                    '&:hover': {
-                        backgroundColor: availability.color,
-                    },
-                }}
-                {...props}
-            >
-                {day.getDate()}
-            </Box>
-        </Tooltip>
-    );
-};
+import { useGoogleLogin } from '@react-oauth/google';
+import { es } from 'date-fns/locale';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { Add as AddIcon, Remove as RemoveIcon, NavigateNext as NavigateNextIcon } from '@mui/icons-material';
 
 const Home = () => {
     const navigate = useNavigate();
@@ -72,6 +60,7 @@ const Home = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [availabilityMap, setAvailabilityMap] = useState({});
+    const [nextAvailableDate, setNextAvailableDate] = useState(null);
 
     useEffect(() => {
         fetchRouteAvailability(selectedDate);
@@ -225,6 +214,93 @@ const Home = () => {
         }
     };
 
+    // Find the next available date
+    const findNextAvailableDate = async () => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Start with today
+        let currentDate = new Date(today);
+
+        // Search for the next 30 days
+        for (let i = 0; i < 30; i++) {
+            try {
+                setLoading(true);
+                const formattedDate = format(currentDate, 'yyyy-MM-dd');
+                const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/routes/availability/${formattedDate}`);
+
+                // Check if the date is operational and has available seats
+                if (response.data.isOperational &&
+                    response.data.routes &&
+                    response.data.routes.length > 0 &&
+                    response.data.routes.some(route => route.available_seats > 0)) {
+
+                    // Found an available date
+                    setSelectedDate(currentDate);
+                    setRoutes(response.data.routes);
+                    setLoading(false);
+                    return;
+                }
+
+                // Move to the next day
+                currentDate.setDate(currentDate.getDate() + 1);
+            } catch (error) {
+                console.error('Error checking date availability:', error);
+                // Move to the next day even if there's an error
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        }
+
+        // If we get here, no available dates were found
+        setError('No hay fechas disponibles en los próximos 30 días');
+        setLoading(false);
+    };
+
+    // Find the next available date for a specific route
+    const findNextAvailableDateForRoute = async (routeId) => {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        // Start with today
+        let currentDate = new Date(today);
+
+        // Search for the next 30 days
+        for (let i = 0; i < 30; i++) {
+            try {
+                setLoading(true);
+                const formattedDate = format(currentDate, 'yyyy-MM-dd');
+                const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/routes/availability/${formattedDate}`);
+
+                // Check if the date is operational and has the specific route with available seats
+                if (response.data.isOperational &&
+                    response.data.routes &&
+                    response.data.routes.length > 0) {
+
+                    const route = response.data.routes.find(r => r.id === routeId);
+                    if (route && route.available_seats > 0) {
+                        // Found an available date for this route
+                        setSelectedDate(currentDate);
+                        setRoutes(response.data.routes);
+                        setSelectedRoute(route);
+                        setLoading(false);
+                        return;
+                    }
+                }
+
+                // Move to the next day
+                currentDate.setDate(currentDate.getDate() + 1);
+            } catch (error) {
+                console.error('Error checking date availability:', error);
+                // Move to the next day even if there's an error
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        }
+
+        // If we get here, no available dates were found
+        setError('No hay fechas disponibles para esta ruta en los próximos 30 días');
+        setLoading(false);
+    };
+
     return (
         <>
             <Container maxWidth="lg" sx={{ mt: 4, mb: 8 }}>
@@ -251,47 +327,25 @@ const Home = () => {
                                 Paso 1: Selecciona la Fecha
                             </Typography>
                             <Box sx={{ mt: 2 }}>
-                                <DateCalendar
-                                    value={selectedDate}
-                                    onChange={handleDateSelect}
-                                    minDate={new Date()}
-                                    onMonthChange={handleMonthChange}
-                                    renderDay={(day, _value, DayComponentProps) => {
-                                        const availability = getDateAvailability(day);
-                                        return (
-                                            <Tooltip title={availability.tooltip}>
-                                                <div
-                                                    style={{
-                                                        width: '100%',
-                                                        height: '100%',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        backgroundColor: availability.color,
-                                                        color: 'white',
-                                                        borderRadius: '50%',
-                                                    }}
-                                                >
-                                                    {day.getDate()}
-                                                </div>
-                                            </Tooltip>
-                                        );
-                                    }}
-                                />
-                            </Box>
-                            <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between' }}>
-                                <Typography variant="body2" color="text.secondary">
-                                    Verde: Disponible
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Naranja: Pocos asientos
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Rosa: Lleno
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Rojo: No operativo
-                                </Typography>
+                                <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={es}>
+                                    <DateCalendar
+                                        value={selectedDate}
+                                        onChange={handleDateSelect}
+                                        onMonthChange={handleMonthChange}
+                                        minDate={new Date()}
+                                    />
+                                </LocalizationProvider>
+                                <Box sx={{ mt: 2, display: 'flex', justifyContent: 'center' }}>
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        startIcon={<NavigateNextIcon />}
+                                        onClick={findNextAvailableDate}
+                                        disabled={loading}
+                                    >
+                                        Siguiente fecha disponible
+                                    </Button>
+                                </Box>
                             </Box>
                         </Paper>
                     </Grid>
@@ -353,10 +407,29 @@ const Home = () => {
                                                                         fullWidth
                                                                     />
                                                                 </Grid>
-                                                                <Grid item xs={12} sm={6}>
-                                                                    <Typography variant="body2" color="text.secondary">
-                                                                        {selectedRoute.available_seats} asientos disponibles
+                                                                <Grid item xs={12} sm={2}>
+                                                                    <Typography
+                                                                        variant="body2"
+                                                                        color={route.available_seats > 0 ? 'success.main' : 'error.main'}
+                                                                        fontWeight="bold"
+                                                                    >
+                                                                        {route.available_seats > 0
+                                                                            ? `${route.available_seats} asientos disponibles`
+                                                                            : 'Completamente lleno'}
                                                                     </Typography>
+                                                                    {route.available_seats === 0 && (
+                                                                        <Button
+                                                                            size="small"
+                                                                            color="primary"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                findNextAvailableDateForRoute(route.id);
+                                                                            }}
+                                                                            sx={{ mt: 1 }}
+                                                                        >
+                                                                            Buscar fecha disponible
+                                                                        </Button>
+                                                                    )}
                                                                 </Grid>
                                                             </Grid>
                                                         </>

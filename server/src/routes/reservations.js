@@ -25,11 +25,11 @@ router.post('/', verifyToken, async (req, res) => {
         // Check if user has a phone number (only for confirmed reservations)
         if (status === 'confirmed') {
             const [users] = await pool.query(
-                'SELECT phone FROM users WHERE id = ?',
+                'SELECT phone_number FROM users WHERE id = ?',
                 [userId]
             );
 
-            if (!users[0].phone) {
+            if (!users[0].phone_number) {
                 return res.status(400).json({ message: 'Phone number is required for confirmed reservations' });
             }
         }
@@ -69,7 +69,12 @@ router.post('/', verifyToken, async (req, res) => {
 
         // Get the created reservation with route details
         const [reservations] = await pool.query(`
-            SELECT r.*, rt.name as route_name, rt.origin, rt.destination, rt.departure_time
+            SELECT 
+                r.*, 
+                CONCAT(rt.origin, ' - ', rt.destination) as route_name, 
+                rt.origin, 
+                rt.destination, 
+                rt.departure_time
             FROM reservations r
             JOIN routes rt ON r.route_id = rt.id
             WHERE r.id = ?

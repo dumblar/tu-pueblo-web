@@ -3,6 +3,10 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
+const { pool } = require('./config/database');
+const authRoutes = require('./routes/auth');
+const routesRoutes = require('./routes/routes');
+const reservationsRoutes = require('./routes/reservations');
 
 // Load environment variables
 dotenv.config();
@@ -14,7 +18,7 @@ app.set('trust proxy', 1);
 
 // Middleware
 app.use(helmet()); // Security headers
-app.use(cors()); // Enable CORS
+app.use(cors()); // Enable CORS with default settings
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
@@ -26,9 +30,9 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/routes', require('./routes/routes'));
-app.use('/api/reservations', require('./routes/reservations'));
+app.use('/api/auth', authRoutes);
+app.use('/api/routes', routesRoutes);
+app.use('/api/reservations', reservationsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

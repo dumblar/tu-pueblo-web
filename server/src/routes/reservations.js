@@ -4,112 +4,88 @@ const { body, validationResult } = require('express-validator');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
-const { sendEmail } = require('../services/emailService');
 const { notifyNewReservation, notifyCancelledReservation } = require('../services/notificationService');
 
 // Create a new reservation
-router.post(
-    '/',
-    verifyToken,
-    [
-        body('routeId').isInt().withMessage('Invalid route ID'),
-        body('reservationDate').isDate().withMessage('Invalid date'),
-        body('seatNumber').isInt({ min: 1 }).withMessage('Invalid seat quantity'),
-    ],
-    async (req, res) => {
-        try {
-            const errors = validationResult(req);
-            if (!errors.isEmpty()) {
-                return res.status(400).json({ errors: errors.array() });
-            }
+router.post('/', verifyToken, async (req, res) => {
+    try {
+        const { routeId, reservationDate, seatNumber, status = 'confirmed' } = req.body;
+        const userId = req.user.id;
 
-            const { routeId, reservationDate, seatNumber, status = 'confirmed' } = req.body;
-            const userId = req.user.id;
-
-            // Validate required fields
-            if (!routeId || !reservationDate || !seatNumber) {
-                return res.status(400).json({ message: 'Missing required fields' });
-            }
-
-            // Validate seat number is a positive integer
-            if (!Number.isInteger(seatNumber) || seatNumber < 1) {
-                return res.status(400).json({ message: 'Seat number must be a positive integer' });
-            }
-
-            // Check if user has a phone number (only for confirmed reservations)
-            if (status === 'confirmed') {
-                const [users] = await pool.query(
-                    'SELECT phone FROM users WHERE id = ?',
-                    [userId]
-                );
-
-                if (!users[0].phone) {
-                    return res.status(400).json({ message: 'Phone number is required for confirmed reservations' });
-                }
-            }
-
-            // Get route details to check capacity
-            const [routes] = await pool.query(
-                'SELECT capacity FROM routes WHERE id = ?',
-                [routeId]
-            );
-
-            if (routes.length === 0) {
-                return res.status(404).json({ message: 'Route not found' });
-            }
-
-            const route = routes[0];
-
-            // Check if there are enough seats available
-            const [bookings] = await pool.query(
-                'SELECT SUM(seat_number) as total_booked FROM reservations WHERE route_id = ? AND reservation_date = ? AND status != "cancelled"',
-                [routeId, reservationDate]
-            );
-
-            const totalBooked = bookings[0].total_booked || 0;
-            const availableSeats = route.capacity - totalBooked;
-
-            if (seatNumber > availableSeats) {
-                return res.status(400).json({ message: `Only ${availableSeats} seats available` });
-            }
-
-            // Create the reservation
-            const [result] = await pool.query(
-                'INSERT INTO reservations (user_id, route_id, reservation_date, seat_number, status) VALUES (?, ?, ?, ?, ?)',
-                [userId, routeId, reservationDate, seatNumber, status]
-            );
-
-            const reservationId = result.insertId;
-
-            // Get the created reservation with route details
-            const [reservations] = await pool.query(`
-                SELECT r.*, rt.name as route_name, rt.origin, rt.destination, rt.departure_time
-                FROM reservations r
-                JOIN routes rt ON r.route_id = rt.id
-                WHERE r.id = ?
-            `, [reservationId]);
-
-            const reservation = reservations[0];
-
-            // Send confirmation email if status is confirmed
-            if (status === 'confirmed') {
-                await sendEmail(
-                    req.user.email,
-                    'Reserva Confirmada - Tu Pueblo',
-                    `Tu reserva para la ruta ${reservation.route_name} el ${reservation.reservation_date} ha sido confirmada.`
-                );
-            }
-
-            // Send admin notification
-            await notifyNewReservation(reservation);
-
-            res.status(201).json(reservation);
-        } catch (error) {
-            console.error('Error creating reservation:', error);
-            res.status(500).json({ message: 'Failed to create reservation' });
+        // Validate required fields
+        if (!routeId || !reservationDate || !seatNumber) {
+            return res.status(400).json({ message: 'Missing required fields' });
         }
+
+        // Validate seat number is a positive integer
+        if (!Number.isInteger(seatNumber) || seatNumber < 1) {
+            return res.status(400).json({ message: 'Seat number must be a positive integer' });
+        }
+
+        // Check if user has a phone number (only for confirmed reservations)
+        if (status === 'confirmed') {
+            const [users] = await pool.query(
+                'SELECT phone FROM users WHERE id = ?',
+                [userId]
+            );
+
+            if (!users[0].phone) {
+                return res.status(400).json({ message: 'Phone number is required for confirmed reservations' });
+            }
+        }
+
+        // Get route details to check capacity
+        const [routes] = await pool.query(
+            'SELECT capacity FROM routes WHERE id = ?',
+            [routeId]
+        );
+
+        if (routes.length === 0) {
+            return res.status(404).json({ message: 'Route not found' });
+        }
+
+        const route = routes[0];
+
+        // Check if there are enough seats available
+        const [bookings] = await pool.query(
+            'SELECT SUM(seat_number) as total_booked FROM reservations WHERE route_id = ? AND reservation_date = ? AND status != "cancelled"',
+            [routeId, reservationDate]
+        );
+
+        const totalBooked = bookings[0].total_booked || 0;
+        const availableSeats = route.capacity - totalBooked;
+
+        if (seatNumber > availableSeats) {
+            return res.status(400).json({ message: `Only ${availableSeats} seats available` });
+        }
+
+        // Create the reservation
+        const [result] = await pool.query(
+            'INSERT INTO reservations (user_id, route_id, reservation_date, seat_number, status) VALUES (?, ?, ?, ?, ?)',
+            [userId, routeId, reservationDate, seatNumber, status]
+        );
+
+        const reservationId = result.insertId;
+
+        // Get the created reservation with route details
+        const [reservations] = await pool.query(`
+            SELECT r.*, rt.name as route_name, rt.origin, rt.destination, rt.departure_time
+            FROM reservations r
+            JOIN routes rt ON r.route_id = rt.id
+            WHERE r.id = ?
+        `, [reservationId]);
+
+        const reservation = reservations[0];
+
+        // Send admin notification
+        await notifyNewReservation(reservation);
+
+        res.status(201).json(reservation);
+    } catch (error) {
+        console.error('Error creating reservation:', error);
+        res.status(500).json({ message: 'Failed to create reservation' });
     }
-);
+});
 
 // Get user's reservations
 router.get('/user', verifyToken, async (req, res) => {

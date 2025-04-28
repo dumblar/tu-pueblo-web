@@ -84,7 +84,8 @@ router.get('/availability/:date', async (req, res) => {
             LEFT JOIN reservations res ON r.id = res.route_id 
                 AND res.reservation_date = ? 
                 AND res.status != 'cancelled'
-            GROUP BY r.id, r.name, r.capacity, r.created_at, r.updated_at
+            GROUP BY r.id, r.origin, r.destination, r.capacity, r.created_at, r.updated_at
+            ORDER BY r.origin DESC
         `, [date]);
 
         if (!routes || routes.length === 0) {

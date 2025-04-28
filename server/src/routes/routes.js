@@ -15,9 +15,53 @@ router.get('/', async (req, res) => {
 });
 
 // Get route availability for a specific date
-router.get('/:date', async (req, res) => {
+router.get('/:routeId/availability/:date', async (req, res) => {
+    try {
+        const { routeId, date } = req.params;
+
+        // Get route capacity
+        const [routes] = await pool.query(
+            'SELECT capacity FROM routes WHERE id = ?',
+            [routeId]
+        );
+
+        if (routes.length === 0) {
+            return res.status(404).json({ message: 'Route not found' });
+        }
+
+        const capacity = routes[0].capacity;
+
+        // Get total booked seats for the date (treating seat_number as quantity)
+        const [bookings] = await pool.query(
+            'SELECT SUM(seat_number) as total_booked FROM reservations WHERE route_id = ? AND reservation_date = ? AND status != "cancelled"',
+            [routeId, date]
+        );
+
+        const totalBooked = bookings[0].total_booked || 0;
+        const availableSeats = capacity - totalBooked;
+
+        res.json({
+            date,
+            availableSeats,
+            totalSeats: capacity,
+            bookedSeats: totalBooked
+        });
+    } catch (error) {
+        console.error('Error getting route availability:', error);
+        res.status(500).json({ message: 'Failed to get route availability' });
+    }
+});
+
+// Get all routes with availability for a specific date
+router.get('/availability/:date', async (req, res) => {
     try {
         const { date } = req.params;
+
+        // Validate date format
+        if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            return res.status(400).json({ message: 'Invalid date format. Use YYYY-MM-DD' });
+        }
+
         // Check if date is non-operational
         const [nonOperationalDays] = await pool.query(
             'SELECT * FROM non_operational_days WHERE date = ?',
@@ -30,20 +74,29 @@ router.get('/:date', async (req, res) => {
                 reason: nonOperationalDays[0].reason
             });
         }
+
         // Get all routes with their availability
         const [routes] = await pool.query(`
-      SELECT 
-        r.*,
-        COUNT(res.id) as booked_seats
-      FROM routes r
-      LEFT JOIN reservations res ON r.id = res.route_id 
-        AND res.reservation_date = ? 
-        AND res.status != 'cancelled'
-      GROUP BY r.id
-    `, [date]);
+            SELECT 
+                r.*,
+                COALESCE(SUM(res.seat_number), 0) as booked_seats
+            FROM routes r
+            LEFT JOIN reservations res ON r.id = res.route_id 
+                AND res.reservation_date = ? 
+                AND res.status != 'cancelled'
+            GROUP BY r.id, r.name, r.capacity, r.created_at, r.updated_at
+        `, [date]);
+
+        if (!routes || routes.length === 0) {
+            return res.json({
+                isOperational: true,
+                routes: []
+            });
+        }
+
         const routesWithAvailability = routes.map(route => ({
             ...route,
-            available_seats: route.capacity - route.booked_seats
+            available_seats: route.capacity - (parseInt(route.booked_seats) || 0)
         }));
 
         res.json({
@@ -52,7 +105,10 @@ router.get('/:date', async (req, res) => {
         });
     } catch (error) {
         console.error('Error fetching route availability:', error);
-        res.status(500).json({ message: 'Failed to fetch route availability' });
+        res.status(500).json({
+            message: 'Failed to fetch route availability',
+            error: error.message
+        });
     }
 });
 

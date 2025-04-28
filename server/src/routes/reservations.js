@@ -4,7 +4,8 @@ const { body, validationResult } = require('express-validator');
 const { v4: uuidv4 } = require('uuid');
 const { pool } = require('../config/database');
 const { verifyToken } = require('../middleware/auth');
-const { sendEmail } = require('../utils/email');
+const { sendEmail } = require('../services/emailService');
+const { notifyNewReservation, notifyCancelledReservation } = require('../services/notificationService');
 
 // Create a new reservation
 router.post(
@@ -13,7 +14,7 @@ router.post(
     [
         body('routeId').isInt().withMessage('Invalid route ID'),
         body('reservationDate').isDate().withMessage('Invalid date'),
-        body('seatNumber').isInt({ min: 1 }).withMessage('Invalid seat number'),
+        body('seatNumber').isInt({ min: 1 }).withMessage('Invalid seat quantity'),
     ],
     async (req, res) => {
         try {
@@ -22,57 +23,87 @@ router.post(
                 return res.status(400).json({ errors: errors.array() });
             }
 
-            const { routeId, reservationDate, seatNumber } = req.body;
+            const { routeId, reservationDate, seatNumber, status = 'confirmed' } = req.body;
             const userId = req.user.id;
 
-            // Check if user has phone number
-            const [users] = await pool.query(
-                'SELECT phone_number FROM users WHERE id = ?',
-                [userId]
-            );
-
-            if (!users[0].phone_number) {
-                return res.status(400).json({
-                    message: 'Phone number required for reservation'
-                });
+            // Validate required fields
+            if (!routeId || !reservationDate || !seatNumber) {
+                return res.status(400).json({ message: 'Missing required fields' });
             }
 
-            // Check if seat is available
-            const [existingReservations] = await pool.query(
-                'SELECT * FROM reservations WHERE route_id = ? AND reservation_date = ? AND seat_number = ? AND status != "cancelled"',
-                [routeId, reservationDate, seatNumber]
-            );
-
-            if (existingReservations.length > 0) {
-                return res.status(400).json({
-                    message: 'Seat already reserved'
-                });
+            // Validate seat number is a positive integer
+            if (!Number.isInteger(seatNumber) || seatNumber < 1) {
+                return res.status(400).json({ message: 'Seat number must be a positive integer' });
             }
 
-            // Create reservation
-            const reservationId = uuidv4();
-            await pool.query(
-                'INSERT INTO reservations (id, user_id, route_id, reservation_date, seat_number, status) VALUES (?, ?, ?, ?, ?, "confirmed")',
-                [reservationId, userId, routeId, reservationDate, seatNumber]
-            );
+            // Check if user has a phone number (only for confirmed reservations)
+            if (status === 'confirmed') {
+                const [users] = await pool.query(
+                    'SELECT phone FROM users WHERE id = ?',
+                    [userId]
+                );
 
-            // Get route details for email
+                if (!users[0].phone) {
+                    return res.status(400).json({ message: 'Phone number is required for confirmed reservations' });
+                }
+            }
+
+            // Get route details to check capacity
             const [routes] = await pool.query(
-                'SELECT * FROM routes WHERE id = ?',
+                'SELECT capacity FROM routes WHERE id = ?',
                 [routeId]
             );
 
-            // Send confirmation email
-            await sendEmail({
-                to: req.user.email,
-                subject: 'Reservation Confirmation',
-                text: `Your reservation has been confirmed for ${routes[0].origin} to ${routes[0].destination} on ${reservationDate} at seat ${seatNumber}.`
-            });
+            if (routes.length === 0) {
+                return res.status(404).json({ message: 'Route not found' });
+            }
 
-            res.json({
-                message: 'Reservation created successfully',
-                reservationId
-            });
+            const route = routes[0];
+
+            // Check if there are enough seats available
+            const [bookings] = await pool.query(
+                'SELECT SUM(seat_number) as total_booked FROM reservations WHERE route_id = ? AND reservation_date = ? AND status != "cancelled"',
+                [routeId, reservationDate]
+            );
+
+            const totalBooked = bookings[0].total_booked || 0;
+            const availableSeats = route.capacity - totalBooked;
+
+            if (seatNumber > availableSeats) {
+                return res.status(400).json({ message: `Only ${availableSeats} seats available` });
+            }
+
+            // Create the reservation
+            const [result] = await pool.query(
+                'INSERT INTO reservations (user_id, route_id, reservation_date, seat_number, status) VALUES (?, ?, ?, ?, ?)',
+                [userId, routeId, reservationDate, seatNumber, status]
+            );
+
+            const reservationId = result.insertId;
+
+            // Get the created reservation with route details
+            const [reservations] = await pool.query(`
+                SELECT r.*, rt.name as route_name, rt.origin, rt.destination, rt.departure_time
+                FROM reservations r
+                JOIN routes rt ON r.route_id = rt.id
+                WHERE r.id = ?
+            `, [reservationId]);
+
+            const reservation = reservations[0];
+
+            // Send confirmation email if status is confirmed
+            if (status === 'confirmed') {
+                await sendEmail(
+                    req.user.email,
+                    'Reserva Confirmada - Tu Pueblo',
+                    `Tu reserva para la ruta ${reservation.route_name} el ${reservation.reservation_date} ha sido confirmada.`
+                );
+            }
+
+            // Send admin notification
+            await notifyNewReservation(reservation);
+
+            res.status(201).json(reservation);
         } catch (error) {
             console.error('Error creating reservation:', error);
             res.status(500).json({ message: 'Failed to create reservation' });
@@ -103,33 +134,37 @@ router.get('/user', verifyToken, async (req, res) => {
     }
 });
 
-// Cancel reservation
-router.delete('/:id', verifyToken, async (req, res) => {
+// Cancel a reservation
+router.put('/:id/cancel', verifyToken, async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.user.id;
 
-        // Check if reservation exists and belongs to user
+        // Get the reservation to check ownership
         const [reservations] = await pool.query(
-            'SELECT * FROM reservations WHERE id = ? AND user_id = ?',
-            [id, req.user.id]
+            'SELECT * FROM reservations WHERE id = ?',
+            [id]
         );
 
         if (reservations.length === 0) {
             return res.status(404).json({ message: 'Reservation not found' });
         }
 
-        // Cancel reservation
+        const reservation = reservations[0];
+
+        // Check if the user owns the reservation
+        if (reservation.user_id !== userId) {
+            return res.status(403).json({ message: 'Not authorized to cancel this reservation' });
+        }
+
+        // Update the reservation status to cancelled
         await pool.query(
             'UPDATE reservations SET status = "cancelled" WHERE id = ?',
             [id]
         );
 
-        // Send cancellation email
-        await sendEmail({
-            to: req.user.email,
-            subject: 'Reservation Cancelled',
-            text: `Your reservation for ${reservations[0].reservation_date} has been cancelled.`
-        });
+        // Send admin notification about the cancellation
+        await notifyCancelledReservation(reservation);
 
         res.json({ message: 'Reservation cancelled successfully' });
     } catch (error) {

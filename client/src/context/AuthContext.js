@@ -95,7 +95,7 @@ export const AuthProvider = ({ children }) => {
     const updatePhoneNumber = async (phoneNumber) => {
         try {
             const token = localStorage.getItem('token');
-            await axios.post(
+            const response = await axios.post(
                 `${process.env.REACT_APP_API_URL}/api/auth/verify-phone`,
                 { phoneNumber },
                 {
@@ -103,7 +103,7 @@ export const AuthProvider = ({ children }) => {
                 }
             );
             setUserHasPhone(true);
-            return true;
+            return response.data;
         } catch (error) {
             console.error('Phone verification error:', error);
             throw error;

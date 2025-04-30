@@ -428,7 +428,14 @@ const Home = () => {
                                                         {route.origin} → {route.destination}
                                                     </Typography>
                                                     <Typography>
-                                                        Salida: {new Date(`2000-01-01T${route.departure_time}`).toLocaleTimeString()}
+                                                        Salida: {new Date(selectedDate.toISOString().split('T')[0] + 'T' + route.departure_time).toLocaleString('es-ES', {
+                                                            weekday: 'long',
+                                                            year: 'numeric',
+                                                            month: 'long',
+                                                            day: 'numeric',
+                                                            hour: '2-digit',
+                                                            minute: '2-digit'
+                                                        })}
                                                     </Typography>
                                                     <Typography>
                                                         Asientos Disponibles: {route.available_seats}

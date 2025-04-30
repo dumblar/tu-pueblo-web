@@ -71,12 +71,16 @@ router.post('/', verifyToken, async (req, res) => {
         const [reservations] = await pool.query(`
             SELECT 
                 r.*, 
-                CONCAT(rt.origin, ' - ', rt.destination) as route_name, 
+                CONCAT(rt.origin, ' → ', rt.destination) as route_name, 
                 rt.origin, 
                 rt.destination, 
-                rt.departure_time
+                rt.departure_time,
+                u.name as passenger_name,
+                u.email as passenger_email,
+                u.phone_number as passenger_phone
             FROM reservations r
             JOIN routes rt ON r.route_id = rt.id
+            JOIN users u ON r.user_id = u.id
             WHERE r.id = ?
         `, [reservationId]);
 
@@ -122,10 +126,19 @@ router.put('/:id/cancel', verifyToken, async (req, res) => {
         const userId = req.user.id;
 
         // Get the reservation to check ownership
-        const [reservations] = await pool.query(
-            'SELECT * FROM reservations WHERE id = ?',
-            [id]
-        );
+        const [reservations] = await pool.query(`
+            SELECT 
+                r.*,
+                CONCAT(rt.origin, ' → ', rt.destination) as route_name,
+                rt.departure_time,
+                u.name as passenger_name,
+                u.email as passenger_email,
+                u.phone_number as passenger_phone
+            FROM reservations r
+            JOIN routes rt ON r.route_id = rt.id
+            JOIN users u ON r.user_id = u.id
+            WHERE r.id = ?
+        `, [id]);
 
         if (reservations.length === 0) {
             return res.status(404).json({ message: 'Reservation not found' });

@@ -51,7 +51,7 @@ import { Add as AddIcon, Remove as RemoveIcon, NavigateNext as NavigateNextIcon 
 
 const Home = () => {
     const navigate = useNavigate();
-    const { user, login, openPhoneForm, userHasPhone } = useAuth();
+    const { currentUser, login, openPhoneForm, userHasPhone } = useAuth();
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [routes, setRoutes] = useState([]);
@@ -59,6 +59,13 @@ const Home = () => {
     const [seatQuantity, setSeatQuantity] = useState(1);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [successMessage, setSuccessMessage] = useState(null);
+    const [showPhoneDialog, setShowPhoneDialog] = useState(false);
+    const [phoneNumber, setPhoneNumber] = useState('');
+    const [phoneError, setPhoneError] = useState('');
+    const [activeStep, setActiveStep] = useState(0);
+    const [showConfirmationDialog, setShowConfirmationDialog] = useState(false);
+    const [reservationDetails, setReservationDetails] = useState(null);
     const [availabilityMap, setAvailabilityMap] = useState({});
     const [nextAvailableDate, setNextAvailableDate] = useState(null);
 
@@ -149,8 +156,23 @@ const Home = () => {
         }
     };
 
+    // Add new functions for incrementing and decrementing seat quantity
+    const incrementSeatQuantity = (e) => {
+        e.stopPropagation(); // Prevent the route selection from triggering
+        if (selectedRoute && seatQuantity < selectedRoute.available_seats) {
+            setSeatQuantity(prevQuantity => prevQuantity + 1);
+        }
+    };
+
+    const decrementSeatQuantity = (e) => {
+        e.stopPropagation(); // Prevent the route selection from triggering
+        if (seatQuantity > 1) {
+            setSeatQuantity(prevQuantity => prevQuantity - 1);
+        }
+    };
+
     const handleConfirm = async () => {
-        if (!user) {
+        if (!currentUser) {
             login();
             return;
         }
@@ -170,45 +192,51 @@ const Home = () => {
             return;
         }
 
+        // Check if user has a phone number
+        console.log('Current user:', currentUser);
+        console.log('Phone number:', currentUser.phone_number);
+
+        if (!currentUser.phone_number) {
+            console.log('No phone number found, opening phone form');
+            openPhoneForm();
+            return;
+        }
+
         try {
             setLoading(true);
             const token = localStorage.getItem('token');
+            console.log('Creating reservation with token:', token);
 
-            if (!userHasPhone) {
-                // Create a pending reservation
-                await axios.post(
-                    `${process.env.REACT_APP_API_URL}/api/reservations`,
-                    {
-                        routeId: selectedRoute.id,
-                        reservationDate: format(selectedDate, 'yyyy-MM-dd'),
-                        seatNumber: seatQuantity,
-                        status: 'pending'
-                    },
-                    {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }
-                );
-                // Open phone form
-                openPhoneForm();
-                setError('Por favor ingresa tu número de teléfono para confirmar la reserva');
-            } else {
-                // Create confirmed reservation
-                await axios.post(
-                    `${process.env.REACT_APP_API_URL}/api/reservations`,
-                    {
-                        routeId: selectedRoute.id,
-                        reservationDate: format(selectedDate, 'yyyy-MM-dd'),
-                        seatNumber: seatQuantity
-                    },
-                    {
-                        headers: { Authorization: `Bearer ${token}` }
-                    }
-                );
-                navigate('/my-bookings');
+            // Create the reservation
+            const response = await axios.post(
+                `${process.env.REACT_APP_API_URL}/api/reservations`,
+                {
+                    routeId: selectedRoute.id,
+                    reservationDate: format(selectedDate, 'yyyy-MM-dd'),
+                    seatNumber: seatQuantity,
+                    status: 'confirmed'
+                },
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+
+            console.log('Reservation response:', response.data);
+
+            if (response.data) {
+                // Show success message
+                setError(null);
+                setSuccessMessage('¡Reserva exitosa! Redirigiendo a tus reservas...');
+
+                // Redirect to Reservations page after a short delay
+                setTimeout(() => {
+                    navigate('/my-bookings');
+                }, 1500);
             }
         } catch (error) {
+            console.error('Error creating reservation:', error);
             setError(error.response?.data?.message || 'Error al crear la reserva');
-            console.error('Error:', error);
+            setSuccessMessage(null);
         } finally {
             setLoading(false);
         }
@@ -258,17 +286,27 @@ const Home = () => {
 
     // Find the next available date for a specific route
     const findNextAvailableDateForRoute = async (routeId) => {
+        setLoading(true);
+        setError(null);
+
+        // Get today's date
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
-        // Start with today
         let currentDate = new Date(today);
+
+        // Create a delay function
+        const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
         // Search for the next 30 days
         for (let i = 0; i < 30; i++) {
             try {
-                setLoading(true);
                 const formattedDate = format(currentDate, 'yyyy-MM-dd');
+
+                // Add a delay between requests to avoid rate limiting
+                if (i > 0) {
+                    await delay(500); // 500ms delay between requests
+                }
+
                 const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/routes/availability/${formattedDate}`);
 
                 // Check if the date is operational and has the specific route with available seats
@@ -291,6 +329,12 @@ const Home = () => {
                 currentDate.setDate(currentDate.getDate() + 1);
             } catch (error) {
                 console.error('Error checking date availability:', error);
+
+                // If we get a rate limit error, wait longer before trying again
+                if (error.response && error.response.status === 429) {
+                    await delay(2000); // Wait 2 seconds before continuing
+                }
+
                 // Move to the next day even if there's an error
                 currentDate.setDate(currentDate.getDate() + 1);
             }
@@ -316,6 +360,12 @@ const Home = () => {
                 {error && (
                     <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
                         {error}
+                    </Alert>
+                )}
+
+                {successMessage && (
+                    <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccessMessage(null)}>
+                        {successMessage}
                     </Alert>
                 )}
 
@@ -394,20 +444,42 @@ const Home = () => {
                                                             </Typography>
                                                             <Grid container spacing={2} alignItems="center">
                                                                 <Grid item xs={12} sm={6}>
-                                                                    <TextField
-                                                                        type="number"
-                                                                        label="Cantidad de asientos"
-                                                                        value={seatQuantity}
-                                                                        onChange={handleSeatQuantityChange}
-                                                                        inputProps={{
-                                                                            min: 1,
-                                                                            max: selectedRoute.available_seats,
-                                                                            step: 1
-                                                                        }}
-                                                                        fullWidth
-                                                                    />
+                                                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                        <IconButton
+                                                                            color="primary"
+                                                                            onClick={decrementSeatQuantity}
+                                                                            disabled={seatQuantity <= 1}
+                                                                            sx={{
+                                                                                border: '1px solid #1976d2',
+                                                                                borderRadius: '50%',
+                                                                                p: 1,
+                                                                                mr: 2
+                                                                            }}
+                                                                        >
+                                                                            <RemoveIcon />
+                                                                        </IconButton>
+                                                                        <Typography variant="h5" sx={{ mx: 2, minWidth: '40px', textAlign: 'center' }}>
+                                                                            {seatQuantity}
+                                                                        </Typography>
+                                                                        <IconButton
+                                                                            color="primary"
+                                                                            onClick={incrementSeatQuantity}
+                                                                            disabled={seatQuantity >= selectedRoute.available_seats}
+                                                                            sx={{
+                                                                                border: '1px solid #1976d2',
+                                                                                borderRadius: '50%',
+                                                                                p: 1,
+                                                                                ml: 2
+                                                                            }}
+                                                                        >
+                                                                            <AddIcon />
+                                                                        </IconButton>
+                                                                    </Box>
+                                                                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+                                                                        {selectedRoute.available_seats} asientos disponibles
+                                                                    </Typography>
                                                                 </Grid>
-                                                                <Grid item xs={12} sm={2}>
+                                                                <Grid item xs={12} sm={6}>
                                                                     <Typography
                                                                         variant="body2"
                                                                         color={route.available_seats > 0 ? 'success.main' : 'error.main'}
@@ -419,19 +491,43 @@ const Home = () => {
                                                                     </Typography>
                                                                     {route.available_seats === 0 && (
                                                                         <Button
-                                                                            size="small"
+                                                                            variant="contained"
                                                                             color="primary"
+                                                                            size="small"
                                                                             onClick={(e) => {
                                                                                 e.stopPropagation();
                                                                                 findNextAvailableDateForRoute(route.id);
                                                                             }}
-                                                                            sx={{ mt: 1 }}
+                                                                            sx={{
+                                                                                mt: 1,
+                                                                                width: '100%',
+                                                                                textTransform: 'none',
+                                                                                fontWeight: 'bold'
+                                                                            }}
+                                                                            startIcon={<NavigateNextIcon />}
                                                                         >
                                                                             Buscar fecha disponible
                                                                         </Button>
                                                                     )}
                                                                 </Grid>
                                                             </Grid>
+
+                                                            <Box mt={3} display="flex" justifyContent="center">
+                                                                <Button
+                                                                    variant="contained"
+                                                                    color="primary"
+                                                                    size="large"
+                                                                    onClick={handleConfirm}
+                                                                    disabled={loading || seatQuantity < 1 || seatQuantity > selectedRoute.available_seats}
+                                                                    sx={{
+                                                                        width: '100%',
+                                                                        textTransform: 'none',
+                                                                        fontWeight: 'bold'
+                                                                    }}
+                                                                >
+                                                                    {loading ? <CircularProgress size={24} /> : 'Confirmar Reserva'}
+                                                                </Button>
+                                                            </Box>
                                                         </>
                                                     )}
                                                 </CardContent>
@@ -439,20 +535,6 @@ const Home = () => {
                                         </Grid>
                                     ))}
                                 </Grid>
-                            )}
-
-                            {selectedRoute && (
-                                <Box mt={3} display="flex" justifyContent="center">
-                                    <Button
-                                        variant="contained"
-                                        color="primary"
-                                        size="large"
-                                        onClick={handleConfirm}
-                                        disabled={loading || seatQuantity < 1 || seatQuantity > selectedRoute.available_seats}
-                                    >
-                                        {loading ? <CircularProgress size={24} /> : 'Confirmar Reserva'}
-                                    </Button>
-                                </Box>
                             )}
                         </Paper>
                     </Grid>

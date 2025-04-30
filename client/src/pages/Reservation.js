@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Container,
     Typography,
@@ -14,17 +14,25 @@ import {
     CardContent,
     Alert,
     CircularProgress,
-    Divider
+    Divider,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Tabs,
+    Tab
 } from '@mui/material';
 import { DatePicker } from '@mui/x-date-pickers';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+import jwtDecode from 'jwt-decode';
 
 const steps = ['Seleccionar Fecha', 'Elegir Ruta y Asiento', 'Confirmar'];
 
 const Reservation = () => {
     const navigate = useNavigate();
-    const { user, login, openPhoneForm, userHasPhone } = useAuth();
+    const location = useLocation();
+    const { currentUser, login, openPhoneForm, userHasPhone } = useAuth();
     const [activeStep, setActiveStep] = useState(0);
     const [selectedDate, setSelectedDate] = useState(null);
     const [routes, setRoutes] = useState([]);
@@ -34,12 +42,60 @@ const Reservation = () => {
     const [selectedSeat, setSelectedSeat] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [tabValue, setTabValue] = useState(0);
+    const [bookings, setBookings] = useState([]);
+    const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+    const [selectedBooking, setSelectedBooking] = useState(null);
+    const [localUser, setLocalUser] = useState(null);
+
+    // Check if we're on the my-bookings route
+    const isMyBookings = location.pathname === '/my-bookings';
+
+    // Check for active session in localStorage
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token && !currentUser) {
+            try {
+                const decoded = jwtDecode(token);
+                setLocalUser(decoded);
+            } catch (error) {
+                console.error('Error decoding token:', error);
+                localStorage.removeItem('token');
+            }
+        }
+    }, [currentUser]);
+
+    useEffect(() => {
+        if (isMyBookings && (currentUser || localUser)) {
+            fetchBookings();
+        }
+    }, [isMyBookings, currentUser, localUser]);
 
     useEffect(() => {
         if (selectedDate) {
             fetchRouteAvailability();
         }
     }, [selectedDate]);
+
+    const fetchBookings = async () => {
+        try {
+            setLoading(true);
+            const token = localStorage.getItem('token');
+            const { data } = await axios.get(
+                `${process.env.REACT_APP_API_URL}/api/reservations/user`,
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+            setBookings(data);
+            setError(null);
+        } catch (error) {
+            setError('Error al obtener las reservas');
+            console.error('Error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const fetchRouteAvailability = async () => {
         try {
@@ -88,8 +144,9 @@ const Reservation = () => {
     };
 
     const handleConfirm = async () => {
-        if (!user) {
-            login();
+        // Check if user is logged in using either currentUser or localUser
+        if (!currentUser && !localUser) {
+            navigate('/login');
             return;
         }
 
@@ -126,6 +183,38 @@ const Reservation = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleCancelClick = (booking) => {
+        setSelectedBooking(booking);
+        setCancelDialogOpen(true);
+    };
+
+    const handleCancelConfirm = async () => {
+        try {
+            setLoading(true);
+            const token = localStorage.getItem('token');
+            await axios.put(
+                `${process.env.REACT_APP_API_URL}/api/reservations/${selectedBooking.id}/cancel`,
+                {},
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+            // Refresh the bookings list
+            fetchBookings();
+            setError(null);
+        } catch (error) {
+            setError('Error al cancelar la reserva');
+            console.error('Error:', error);
+        } finally {
+            setLoading(false);
+            setCancelDialogOpen(false);
+        }
+    };
+
+    const handleTabChange = (event, newValue) => {
+        setTabValue(newValue);
     };
 
     const renderStepContent = (step) => {
@@ -260,28 +349,38 @@ const Reservation = () => {
                         <Typography variant="h6" gutterBottom>
                             Confirmar Reserva
                         </Typography>
-                        <Typography>
-                            Fecha: {selectedDate.toLocaleDateString()}
-                        </Typography>
-                        <Typography>
-                            Ruta: {selectedRoute.origin} → {selectedRoute.destination}
-                        </Typography>
-                        <Typography>
-                            Salida: {new Date(`2000-01-01T${selectedRoute.departure_time}`).toLocaleTimeString()}
-                        </Typography>
-                        <Typography>
-                            Asiento: {selectedSeat}
-                        </Typography>
-                        <Typography>
-                            Precio: ${selectedRoute.price}
-                        </Typography>
-                        <Box mt={3} display="flex" justifyContent="center">
+                        <Card sx={{ mb: 3 }}>
+                            <CardContent>
+                                <Typography variant="h6">
+                                    {selectedRoute.origin} → {selectedRoute.destination}
+                                </Typography>
+                                <Typography>
+                                    Fecha: {selectedDate.toLocaleDateString()}
+                                </Typography>
+                                <Typography>
+                                    Salida: {new Date(`2000-01-01T${selectedRoute.departure_time}`).toLocaleTimeString()}
+                                </Typography>
+                                <Typography>
+                                    Asiento: {selectedSeat}
+                                </Typography>
+                                <Typography>
+                                    Precio: ${selectedRoute.price}
+                                </Typography>
+                            </CardContent>
+                        </Card>
+                        <Box display="flex" justifyContent="space-between">
+                            <Button
+                                variant="outlined"
+                                onClick={() => setActiveStep(1)}
+                            >
+                                Volver
+                            </Button>
                             <Button
                                 variant="contained"
                                 onClick={handleConfirm}
                                 disabled={loading}
                             >
-                                {loading ? <CircularProgress size={24} /> : 'Confirmar Reserva'}
+                                Confirmar Reserva
                             </Button>
                         </Box>
                     </Box>
@@ -292,13 +391,130 @@ const Reservation = () => {
         }
     };
 
+    const renderMyBookings = () => {
+        if (!currentUser && !localUser) {
+            return (
+                <Alert severity="info">
+                    Por favor inicia sesión para ver tus reservas
+                </Alert>
+            );
+        }
+
+        return (
+            <Box>
+                <Typography variant="h4" gutterBottom>
+                    Mis Reservas
+                </Typography>
+
+                {error && (
+                    <Alert severity="error" sx={{ mb: 2 }}>
+                        {error}
+                    </Alert>
+                )}
+
+                {loading ? (
+                    <Box display="flex" justifyContent="center" mt={4}>
+                        <CircularProgress />
+                    </Box>
+                ) : bookings.length === 0 ? (
+                    <Alert severity="info">
+                        No tienes reservas aún
+                    </Alert>
+                ) : (
+                    <Grid container spacing={3}>
+                        {bookings.map((booking) => (
+                            <Grid item xs={12} key={booking.id}>
+                                <Card>
+                                    <CardContent>
+                                        <Grid container spacing={2}>
+                                            <Grid item xs={12} md={8}>
+                                                <Typography variant="h6">
+                                                    {booking.origin} → {booking.destination}
+                                                </Typography>
+                                                <Typography color="text.secondary">
+                                                    Fecha: {new Date(booking.reservation_date).toLocaleDateString()}
+                                                </Typography>
+                                                <Typography color="text.secondary">
+                                                    Salida: {new Date(`2000-01-01T${booking.departure_time}`).toLocaleTimeString()}
+                                                </Typography>
+                                                <Typography color="text.secondary">
+                                                    Asientos: {booking.seat_number}
+                                                </Typography>
+                                                <Typography color="text.secondary">
+                                                    Precio: ${booking.price}
+                                                </Typography>
+                                            </Grid>
+                                            <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+                                                {booking.status === 'confirmed' && (
+                                                    <Button
+                                                        variant="outlined"
+                                                        color="error"
+                                                        onClick={() => handleCancelClick(booking)}
+                                                    >
+                                                        Cancelar Reserva
+                                                    </Button>
+                                                )}
+                                                {booking.status === 'cancelled' && (
+                                                    <Typography color="error">
+                                                        Cancelada
+                                                    </Typography>
+                                                )}
+                                            </Grid>
+                                        </Grid>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                        ))}
+                    </Grid>
+                )}
+
+                <Dialog
+                    open={cancelDialogOpen}
+                    onClose={() => setCancelDialogOpen(false)}
+                >
+                    <DialogTitle>Cancelar Reserva</DialogTitle>
+                    <DialogContent>
+                        <Typography>
+                            ¿Estás seguro de que deseas cancelar esta reserva?
+                        </Typography>
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setCancelDialogOpen(false)}>
+                            No, Mantener Reserva
+                        </Button>
+                        <Button onClick={handleCancelConfirm} color="error">
+                            Sí, Cancelar Reserva
+                        </Button>
+                    </DialogActions>
+                </Dialog>
+            </Box>
+        );
+    };
+
+    if (isMyBookings) {
+        return (
+            <Container maxWidth="lg" sx={{ mt: 4 }}>
+                <Tabs value={tabValue} onChange={handleTabChange} sx={{ mb: 3 }}>
+                    <Tab label="Mis Reservas" />
+                    <Tab label="Nueva Reserva" onClick={() => navigate('/')} />
+                </Tabs>
+                {renderMyBookings()}
+            </Container>
+        );
+    }
+
     return (
-        <Container maxWidth="md" sx={{ py: 4 }}>
+        <Container maxWidth="lg" sx={{ mt: 4 }}>
+            <Typography variant="h4" gutterBottom>
+                Reservar Viaje
+            </Typography>
+
             {error && (
-                <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
+                <Alert severity="error" sx={{ mb: 2 }}>
                     {error}
                 </Alert>
             )}
+
             <Stepper activeStep={activeStep} sx={{ mb: 4 }}>
                 {steps.map((label) => (
                     <Step key={label}>
@@ -306,6 +522,7 @@ const Reservation = () => {
                     </Step>
                 ))}
             </Stepper>
+
             {renderStepContent(activeStep)}
         </Container>
     );

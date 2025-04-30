@@ -7,6 +7,7 @@ const { pool } = require('./config/database');
 const authRoutes = require('./routes/auth');
 const routesRoutes = require('./routes/routes');
 const reservationsRoutes = require('./routes/reservations');
+const adminRoutes = require('./routes/admin');
 
 // Load environment variables
 dotenv.config();
@@ -33,6 +34,7 @@ app.use(limiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/routes', routesRoutes);
 app.use('/api/reservations', reservationsRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

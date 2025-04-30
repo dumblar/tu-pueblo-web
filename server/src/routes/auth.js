@@ -52,7 +52,7 @@ router.get('/user-info', verifyToken, async (req, res) => {
 
         // Get user information
         const [users] = await pool.query(
-            'SELECT id, email, name, phone_number FROM users WHERE id = ?',
+            'SELECT id, email, name, phone_number,isAdmin FROM users WHERE id = ?',
             [userId]
         );
 
@@ -65,7 +65,8 @@ router.get('/user-info', verifyToken, async (req, res) => {
             id: user.id,
             email: user.email,
             name: user.name,
-            phoneNumber: user.phone_number
+            phone_number: user.phone_number,
+            isAdmin: user.isAdmin
         });
     } catch (error) {
         console.error('Error getting user info:', error);
@@ -89,7 +90,7 @@ router.post(
 
             const { phoneNumber } = req.body;
             const userId = req.user.id;
-
+            console.log(phoneNumber, userId);
             // Update user's phone number
             await pool.query(
                 'UPDATE users SET phone_number = ? WHERE id = ?',

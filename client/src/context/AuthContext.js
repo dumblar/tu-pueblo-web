@@ -1,49 +1,81 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import jwtDecode from 'jwt-decode';
+import { useNavigate, useLocation } from 'react-router-dom';
 
-const AuthContext = createContext(null);
+// Create context
+const AuthContext = createContext();
+
+// Custom hook to use the auth context
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(null);
+    const [currentUser, setCurrentUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [authError, setAuthError] = useState(null);
     const [showPhoneForm, setShowPhoneForm] = useState(false);
     const [userHasPhone, setUserHasPhone] = useState(false);
+    const navigate = useNavigate();
+    const location = useLocation();
 
+    // For debugging
     useEffect(() => {
-        // Check for existing token
+        console.log('AuthContext - Current user:', currentUser);
+        console.log('AuthContext - Current path:', location.pathname);
+    }, [currentUser, location]);
+
+    // Check if user is logged in on mount
+    useEffect(() => {
         const token = localStorage.getItem('token');
         if (token) {
-            try {
-                const decoded = jwtDecode(token);
-                if (decoded.exp * 1000 > Date.now()) {
-                    setUser(decoded);
-                    // Check if user has phone number
-                    checkUserPhoneNumber(token);
-                } else {
+            axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+            // Fetch user data
+            axios.get(`${process.env.REACT_APP_API_URL}/api/auth/user-info`)
+                .then(response => {
+                    setCurrentUser(response.data);
+                })
+                .catch(() => {
                     localStorage.removeItem('token');
-                }
-            } catch (error) {
-                console.error('Token decode error:', error);
-                localStorage.removeItem('token');
-            }
+                    delete axios.defaults.headers.common['Authorization'];
+                })
+                .finally(() => {
+                    setLoading(false);
+                });
+        } else {
+            setLoading(false);
         }
-        setLoading(false);
     }, []);
 
     const checkUserPhoneNumber = async (token) => {
         try {
-            const response = await axios.get(
-                `${process.env.REACT_APP_API_URL}/api/auth/user-info`,
-                {
-                    headers: { Authorization: `Bearer ${token}` }
+            const response = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/user-info`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
                 }
-            );
-            setUserHasPhone(!!response.data.phoneNumber);
+            });
+            const data = response.data;
+            console.log('User info response:', data);
+
+            // Check for phone_number property
+            const hasPhone = !!data.phone_number;
+            setUserHasPhone(hasPhone);
+
+            // Make sure the currentUser has the phone_number property
+            if (currentUser) {
+                setCurrentUser({
+                    ...currentUser,
+                    phone_number: data.phone_number
+                });
+            } else {
+                setCurrentUser(data);
+            }
+
+            return hasPhone;
         } catch (error) {
-            console.error('Error checking user phone number:', error);
+            console.error('Error checking phone number:', error);
+            return false;
         }
     };
 
@@ -57,19 +89,20 @@ export const AuthProvider = ({ children }) => {
 
                 if (data.token) {
                     localStorage.setItem('token', data.token);
-                    try {
-                        const decoded = jwtDecode(data.token);
-                        setUser(decoded);
-                        // Check if user has phone number
-                        await checkUserPhoneNumber(data.token);
+                    axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
+
+                    // Get full user data including admin status
+                    const userResponse = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/user-info`, {
+                        headers: { Authorization: `Bearer ${data.token}` }
+                    });
+                    setCurrentUser(userResponse.data);
+
+                    // Check if user has phone number
+                    await checkUserPhoneNumber(data.token);
+
+                    if (!userResponse.data.phone_number) {
                         // Show phone form if user doesn't have a phone number
-                        if (!userHasPhone) {
-                            setShowPhoneForm(true);
-                        }
-                    } catch (decodeError) {
-                        console.error('Token decode error:', decodeError);
-                        setAuthError('Error al procesar el token de autenticación');
-                        localStorage.removeItem('token');
+                        setShowPhoneForm(true);
                     }
                 } else {
                     setAuthError('No se recibió un token válido del servidor');
@@ -87,9 +120,10 @@ export const AuthProvider = ({ children }) => {
 
     const logout = () => {
         localStorage.removeItem('token');
-        setUser(null);
-        setAuthError(null);
+        delete axios.defaults.headers.common['Authorization'];
+        setCurrentUser(null);
         setUserHasPhone(false);
+        navigate('/');
     };
 
     const updatePhoneNumber = async (phoneNumber) => {
@@ -102,11 +136,31 @@ export const AuthProvider = ({ children }) => {
                     headers: { Authorization: `Bearer ${token}` }
                 }
             );
-            setUserHasPhone(true);
-            return response.data;
+
+            console.log('Phone update response:', response.data);
+
+            if (response.data.success) {
+                // Get updated user data
+                const userResponse = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/user-info`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                console.log('Updated user data:', userResponse.data);
+
+                // Make sure the phone_number property is set
+                const updatedUser = {
+                    ...userResponse.data,
+                    phone_number: phoneNumber
+                };
+
+                setCurrentUser(updatedUser);
+                setUserHasPhone(true);
+                setShowPhoneForm(false);
+                return true;
+            }
+            return false;
         } catch (error) {
-            console.error('Phone verification error:', error);
-            throw error;
+            console.error('Error updating phone number:', error);
+            return false;
         }
     };
 
@@ -121,31 +175,25 @@ export const AuthProvider = ({ children }) => {
         setShowPhoneForm(true);
     };
 
-    if (loading) {
-        return <div>Cargando...</div>;
-    }
+    // Value object to be provided by the context
+    const value = {
+        currentUser,
+        loading,
+        authError,
+        login,
+        logout,
+        updatePhoneNumber,
+        showPhoneForm,
+        closePhoneForm,
+        openPhoneForm,
+        userHasPhone
+    };
 
     return (
-        <AuthContext.Provider value={{
-            user,
-            login,
-            logout,
-            updatePhoneNumber,
-            authError,
-            showPhoneForm,
-            closePhoneForm,
-            openPhoneForm,
-            userHasPhone
-        }}>
+        <AuthContext.Provider value={value}>
             {children}
         </AuthContext.Provider>
     );
 };
 
-export const useAuth = () => {
-    const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error('useAuth must be used within an AuthProvider');
-    }
-    return context;
-}; 
+export default AuthContext; 

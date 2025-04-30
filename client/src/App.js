@@ -7,7 +7,6 @@ import PrivateRoute from './components/PrivateRoute';
 import AdminRoute from './components/AdminRoute';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
-import PhoneForm from './components/PhoneForm';
 import Home from './pages/Home';
 import Profile from './pages/Profile';
 import Reservation from './pages/Reservation';
@@ -50,7 +49,6 @@ function App() {
               </Routes>
             </main>
             <Footer />
-            <PhoneForm />
           </div>
         </ThemeProvider>
       </AuthProvider>

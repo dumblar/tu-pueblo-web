@@ -48,10 +48,11 @@ import { es } from 'date-fns/locale';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { Add as AddIcon, Remove as RemoveIcon, NavigateNext as NavigateNextIcon } from '@mui/icons-material';
+import PhoneNumberForm from '../components/PhoneNumberForm';
 
 const Home = () => {
     const navigate = useNavigate();
-    const { currentUser, login, openPhoneForm, userHasPhone } = useAuth();
+    const { currentUser, login, openPhoneForm, userHasPhone, setCurrentUser } = useAuth();
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [routes, setRoutes] = useState([]);
@@ -197,7 +198,7 @@ const Home = () => {
         console.log('Phone number:', currentUser.phone_number);
 
         if (!currentUser.phone_number) {
-            console.log('No phone number found, opening phone form');
+            console.log('No phone number found, opening PhoneNumberForm');
             openPhoneForm();
             return;
         }

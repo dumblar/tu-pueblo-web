@@ -3,6 +3,7 @@ import { useGoogleLogin } from '@react-oauth/google';
 import axios from 'axios';
 import jwtDecode from 'jwt-decode';
 import { useNavigate, useLocation } from 'react-router-dom';
+import PhoneNumberForm from '../components/PhoneNumberForm';
 
 // Create context
 const AuthContext = createContext();
@@ -139,25 +140,21 @@ export const AuthProvider = ({ children }) => {
 
             console.log('Phone update response:', response.data);
 
-            if (response.data.success) {
-                // Get updated user data
-                const userResponse = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/user-info`, {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                console.log('Updated user data:', userResponse.data);
+            // Get updated user data
+            const userResponse = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/user-info`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            console.log('Updated user data:', userResponse.data);
 
-                // Make sure the phone_number property is set
-                const updatedUser = {
-                    ...userResponse.data,
-                    phone_number: phoneNumber
-                };
-
-                setCurrentUser(updatedUser);
-                setUserHasPhone(true);
-                setShowPhoneForm(false);
-                return true;
-            }
-            return false;
+            // Update currentUser with the new data
+            const updatedUser = {
+                ...userResponse.data,
+                phone_number: phoneNumber
+            };
+            setCurrentUser(updatedUser);
+            setUserHasPhone(true);
+            setShowPhoneForm(false);
+            return true;
         } catch (error) {
             console.error('Error updating phone number:', error);
             return false;
@@ -192,6 +189,7 @@ export const AuthProvider = ({ children }) => {
     return (
         <AuthContext.Provider value={value}>
             {children}
+            <PhoneNumberForm />
         </AuthContext.Provider>
     );
 };

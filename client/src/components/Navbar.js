@@ -68,7 +68,7 @@ const Navbar = () => {
                             textDecoration: 'none',
                         }}
                     >
-                        TU PUEBLO
+                        IDA Y VUELTA
                     </Typography>
 
                     {/* Mobile menu */}
@@ -132,7 +132,7 @@ const Navbar = () => {
                             textDecoration: 'none',
                         }}
                     >
-                        TU PUEBLO
+                        IDA Y VUELTA
                     </Typography>
 
                     {/* Desktop menu */}

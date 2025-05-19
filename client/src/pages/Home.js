@@ -49,6 +49,17 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { Add as AddIcon, Remove as RemoveIcon, NavigateNext as NavigateNextIcon } from '@mui/icons-material';
 import PhoneNumberForm from '../components/PhoneNumberForm';
+import jwtDecode from 'jwt-decode';
+
+// Helper function to format price
+const formatPrice = (price) => {
+    return new Intl.NumberFormat('es-CO', {
+        style: 'currency',
+        currency: 'COP',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(price);
+};
 
 const Home = () => {
     const navigate = useNavigate();
@@ -69,6 +80,25 @@ const Home = () => {
     const [reservationDetails, setReservationDetails] = useState(null);
     const [availabilityMap, setAvailabilityMap] = useState({});
     const [nextAvailableDate, setNextAvailableDate] = useState(null);
+    const [pickupLocation, setPickupLocation] = useState('');
+    const [dropoffLocation, setDropoffLocation] = useState('');
+    const [localUser, setLocalUser] = useState(null);
+    const [bookings, setBookings] = useState([]);
+    const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+    const [selectedBooking, setSelectedBooking] = useState(null);
+
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token && !currentUser) {
+            try {
+                const decoded = jwtDecode(token);
+                setLocalUser(decoded);
+            } catch (error) {
+                console.error('Error decoding token:', error);
+                localStorage.removeItem('token');
+            }
+        }
+    }, [currentUser]);
 
     useEffect(() => {
         fetchRouteAvailability(selectedDate);
@@ -159,14 +189,18 @@ const Home = () => {
 
     // Add new functions for incrementing and decrementing seat quantity
     const incrementSeatQuantity = (e) => {
-        e.stopPropagation(); // Prevent the route selection from triggering
+        if (e) {
+            e.stopPropagation(); // Prevent the route selection from triggering
+        }
         if (selectedRoute && seatQuantity < selectedRoute.available_seats) {
             setSeatQuantity(prevQuantity => prevQuantity + 1);
         }
     };
 
     const decrementSeatQuantity = (e) => {
-        e.stopPropagation(); // Prevent the route selection from triggering
+        if (e) {
+            e.stopPropagation(); // Prevent the route selection from triggering
+        }
         if (seatQuantity > 1) {
             setSeatQuantity(prevQuantity => prevQuantity - 1);
         }
@@ -193,12 +227,13 @@ const Home = () => {
             return;
         }
 
-        // Check if user has a phone number
-        console.log('Current user:', currentUser);
-        console.log('Phone number:', currentUser.phone_number);
+        if (!pickupLocation || !dropoffLocation) {
+            setError('Por favor ingresa los lugares de recogida y destino');
+            return;
+        }
 
+        // Check if user has a phone number
         if (!currentUser.phone_number) {
-            console.log('No phone number found, opening PhoneNumberForm');
             openPhoneForm();
             return;
         }
@@ -206,7 +241,6 @@ const Home = () => {
         try {
             setLoading(true);
             const token = localStorage.getItem('token');
-            console.log('Creating reservation with token:', token);
 
             // Create the reservation
             const response = await axios.post(
@@ -215,6 +249,8 @@ const Home = () => {
                     routeId: selectedRoute.id,
                     reservationDate: format(selectedDate, 'yyyy-MM-dd'),
                     seatNumber: seatQuantity,
+                    pickupLocation,
+                    dropoffLocation,
                     status: 'confirmed'
                 },
                 {
@@ -222,14 +258,9 @@ const Home = () => {
                 }
             );
 
-            console.log('Reservation response:', response.data);
-
             if (response.data) {
-                // Show success message
                 setError(null);
                 setSuccessMessage('¡Reserva exitosa! Redirigiendo a tus reservas...');
-
-                // Redirect to Reservations page after a short delay
                 setTimeout(() => {
                     navigate('/my-bookings');
                 }, 1500);
@@ -346,6 +377,54 @@ const Home = () => {
         setLoading(false);
     };
 
+    const fetchBookings = async () => {
+        try {
+            setLoading(true);
+            const token = localStorage.getItem('token');
+            const { data } = await axios.get(
+                `${process.env.REACT_APP_API_URL}/api/reservations/user`,
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+            setBookings(data);
+            setError(null);
+        } catch (error) {
+            setError('Error al obtener las reservas');
+            console.error('Error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleCancelClick = (booking) => {
+        setSelectedBooking(booking);
+        setCancelDialogOpen(true);
+    };
+
+    const handleCancelConfirm = async () => {
+        try {
+            setLoading(true);
+            const token = localStorage.getItem('token');
+            await axios.put(
+                `${process.env.REACT_APP_API_URL}/api/reservations/${selectedBooking.id}/cancel`,
+                {},
+                {
+                    headers: { Authorization: `Bearer ${token}` }
+                }
+            );
+            // Refresh the bookings list
+            fetchBookings();
+            setError(null);
+        } catch (error) {
+            setError('Error al cancelar la reserva');
+            console.error('Error:', error);
+        } finally {
+            setLoading(false);
+            setCancelDialogOpen(false);
+        }
+    };
+
     return (
         <>
             <Container maxWidth="lg" sx={{ mt: 4, mb: 8 }}>
@@ -441,82 +520,113 @@ const Home = () => {
                                                         Asientos Disponibles: {route.available_seats}
                                                     </Typography>
                                                     <Typography>
-                                                        Precio: ${route.price}
+                                                        Precio: {formatPrice(route.price)}
                                                     </Typography>
 
                                                     {selectedRoute?.id === route.id && (
                                                         <>
                                                             <Divider sx={{ my: 2 }} />
-                                                            <Typography variant="subtitle1" gutterBottom>
-                                                                Cantidad de asientos:
-                                                            </Typography>
-                                                            <Grid container spacing={2} alignItems="center">
-                                                                <Grid item xs={12} sm={6}>
-                                                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                                        <IconButton
-                                                                            color="primary"
-                                                                            onClick={decrementSeatQuantity}
-                                                                            disabled={seatQuantity <= 1}
-                                                                            sx={{
-                                                                                border: '1px solid #1976d2',
-                                                                                borderRadius: '50%',
-                                                                                p: 1,
-                                                                                mr: 2
-                                                                            }}
-                                                                        >
-                                                                            <RemoveIcon />
-                                                                        </IconButton>
-                                                                        <Typography variant="h5" sx={{ mx: 2, minWidth: '40px', textAlign: 'center' }}>
-                                                                            {seatQuantity}
-                                                                        </Typography>
-                                                                        <IconButton
-                                                                            color="primary"
-                                                                            onClick={incrementSeatQuantity}
-                                                                            disabled={seatQuantity >= selectedRoute.available_seats}
-                                                                            sx={{
-                                                                                border: '1px solid #1976d2',
-                                                                                borderRadius: '50%',
-                                                                                p: 1,
-                                                                                ml: 2
-                                                                            }}
-                                                                        >
-                                                                            <AddIcon />
-                                                                        </IconButton>
-                                                                    </Box>
-                                                                    <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
-                                                                        {selectedRoute.available_seats} asientos disponibles
-                                                                    </Typography>
+                                                            <Grid container spacing={2}>
+                                                                <Grid item xs={12}>
+                                                                    <TextField
+                                                                        fullWidth
+                                                                        label="Dirección de recogida"
+                                                                        value={pickupLocation}
+                                                                        onChange={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setPickupLocation(e.target.value);
+                                                                        }}
+                                                                        margin="normal"
+                                                                        required
+                                                                    />
+                                                                    <TextField
+                                                                        fullWidth
+                                                                        label="Dirección de llegada"
+                                                                        value={dropoffLocation}
+                                                                        onChange={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setDropoffLocation(e.target.value);
+                                                                        }}
+                                                                        margin="normal"
+                                                                        required
+                                                                    />
                                                                 </Grid>
-                                                                <Grid item xs={12} sm={6}>
-                                                                    <Typography
-                                                                        variant="body2"
-                                                                        color={route.available_seats > 0 ? 'success.main' : 'error.main'}
-                                                                        fontWeight="bold"
-                                                                    >
-                                                                        {route.available_seats > 0
-                                                                            ? `${route.available_seats} asientos disponibles`
-                                                                            : 'Completamente lleno'}
+                                                                <Grid item xs={12}>
+                                                                    <Typography variant="subtitle1" gutterBottom>
+                                                                        Cantidad de asientos:
                                                                     </Typography>
-                                                                    {route.available_seats === 0 && (
-                                                                        <Button
-                                                                            variant="contained"
-                                                                            color="primary"
-                                                                            size="small"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                findNextAvailableDateForRoute(route.id);
-                                                                            }}
-                                                                            sx={{
-                                                                                mt: 1,
-                                                                                width: '100%',
-                                                                                textTransform: 'none',
-                                                                                fontWeight: 'bold'
-                                                                            }}
-                                                                            startIcon={<NavigateNextIcon />}
-                                                                        >
-                                                                            Buscar fecha disponible
-                                                                        </Button>
-                                                                    )}
+                                                                    <Grid container spacing={2} alignItems="center">
+                                                                        <Grid item xs={12} sm={6}>
+                                                                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                                                <IconButton
+                                                                                    color="primary"
+                                                                                    onClick={decrementSeatQuantity}
+                                                                                    disabled={seatQuantity <= 1}
+                                                                                    sx={{
+                                                                                        border: '1px solid #1976d2',
+                                                                                        borderRadius: '50%',
+                                                                                        p: 1,
+                                                                                        mr: 2
+                                                                                    }}
+                                                                                >
+                                                                                    <RemoveIcon />
+                                                                                </IconButton>
+                                                                                <Typography variant="h5" sx={{ mx: 2, minWidth: '40px', textAlign: 'center' }}>
+                                                                                    {seatQuantity}
+                                                                                </Typography>
+                                                                                <IconButton
+                                                                                    color="primary"
+                                                                                    onClick={incrementSeatQuantity}
+                                                                                    disabled={seatQuantity >= selectedRoute.available_seats}
+                                                                                    sx={{
+                                                                                        border: '1px solid #1976d2',
+                                                                                        borderRadius: '50%',
+                                                                                        p: 1,
+                                                                                        ml: 2
+                                                                                    }}
+                                                                                >
+                                                                                    <AddIcon />
+                                                                                </IconButton>
+                                                                            </Box>
+                                                                            <Typography variant="body2" color="text.secondary" align="center" sx={{ mt: 1 }}>
+                                                                                {selectedRoute.available_seats} asientos disponibles
+                                                                            </Typography>
+                                                                        </Grid>
+                                                                        <Grid item xs={12} sm={6}>
+                                                                            <Typography variant="subtitle1" gutterBottom>
+                                                                                Total: {formatPrice(route.price * seatQuantity)}
+                                                                            </Typography>
+                                                                            <Typography
+                                                                                variant="body2"
+                                                                                color={route.available_seats > 0 ? 'success.main' : 'error.main'}
+                                                                                fontWeight="bold"
+                                                                            >
+                                                                                {route.available_seats > 0
+                                                                                    ? `${route.available_seats} asientos disponibles`
+                                                                                    : 'Completamente lleno'}
+                                                                            </Typography>
+                                                                            {route.available_seats === 0 && (
+                                                                                <Button
+                                                                                    variant="contained"
+                                                                                    color="primary"
+                                                                                    size="small"
+                                                                                    onClick={(e) => {
+                                                                                        e.stopPropagation();
+                                                                                        findNextAvailableDateForRoute(route.id);
+                                                                                    }}
+                                                                                    sx={{
+                                                                                        mt: 1,
+                                                                                        width: '100%',
+                                                                                        textTransform: 'none',
+                                                                                        fontWeight: 'bold'
+                                                                                    }}
+                                                                                    startIcon={<NavigateNextIcon />}
+                                                                                >
+                                                                                    Buscar fecha disponible
+                                                                                </Button>
+                                                                            )}
+                                                                        </Grid>
+                                                                    </Grid>
                                                                 </Grid>
                                                             </Grid>
 
@@ -525,8 +635,11 @@ const Home = () => {
                                                                     variant="contained"
                                                                     color="primary"
                                                                     size="large"
-                                                                    onClick={handleConfirm}
-                                                                    disabled={loading || seatQuantity < 1 || seatQuantity > selectedRoute.available_seats}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleConfirm();
+                                                                    }}
+                                                                    disabled={loading || seatQuantity < 1 || seatQuantity > selectedRoute.available_seats || !pickupLocation || !dropoffLocation}
                                                                     sx={{
                                                                         width: '100%',
                                                                         textTransform: 'none',
@@ -603,7 +716,7 @@ const Home = () => {
                                     </ListItemIcon>
                                     <ListItemText
                                         primary="Email"
-                                        secondary="info@tupueblo.co"
+                                        secondary="info@idayvuelta.co"
                                     />
                                 </ListItem>
                                 <ListItem disableGutters>
@@ -651,7 +764,7 @@ const Home = () => {
 
                     <Box display="flex" justifyContent="space-between" alignItems="center">
                         <Typography variant="body2">
-                            © {new Date().getFullYear()} Tu Pueblo. Todos los derechos reservados.
+                            © {new Date().getFullYear()} Ida y vuelta. Todos los derechos reservados.
                         </Typography>
                         <Box>
                             <Link href="#" color="inherit" underline="hover" sx={{ mx: 1 }}>

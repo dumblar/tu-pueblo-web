@@ -21,7 +21,7 @@ function Footer() {
                     {new Date().getFullYear()}
                     {' '}
                     <Link color="inherit" href="/">
-                        Tu Pueblo
+                        Ida y vuelta
                     </Link>
                     {'. Todos los derechos reservados.'}
                 </Typography>

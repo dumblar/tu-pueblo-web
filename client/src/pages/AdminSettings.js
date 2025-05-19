@@ -20,7 +20,7 @@ function AdminSettings() {
         min_reservation_hours: 24,
         max_reservation_days: 30,
         notification_email: '',
-        company_name: 'Tu Pueblo',
+        company_name: 'Ida y vuelta',
         company_address: '',
         company_phone: '',
         company_email: ''

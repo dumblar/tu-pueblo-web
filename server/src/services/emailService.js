@@ -30,7 +30,7 @@ const sendEmail = async (to, subject, text, html) => {
         const transporter = createTransporter();
 
         const mailOptions = {
-            from: `"Tu Pueblo" <${process.env.EMAIL_USER}>`,
+            from: `"Ida y vuelta" <${process.env.EMAIL_USER}>`,
             to,
             subject,
             text,

@@ -29,6 +29,16 @@ import jwtDecode from 'jwt-decode';
 
 const steps = ['Seleccionar Fecha', 'Elegir Ruta y Asiento', 'Confirmar'];
 
+// Helper function to format price
+const formatPrice = (price) => {
+    return new Intl.NumberFormat('es-CO', {
+        style: 'currency',
+        currency: 'COP',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(price);
+};
+
 const Reservation = () => {
     const navigate = useNavigate();
     const location = useLocation();
@@ -40,6 +50,8 @@ const Reservation = () => {
     const [availableSeats, setAvailableSeats] = useState([]);
     const [reservedSeats, setReservedSeats] = useState([]);
     const [selectedSeat, setSelectedSeat] = useState(null);
+    const [pickupLocation, setPickupLocation] = useState('');
+    const [dropoffLocation, setDropoffLocation] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [tabValue, setTabValue] = useState(0);
@@ -127,6 +139,7 @@ const Reservation = () => {
     };
 
     const handleRouteSelect = (route) => {
+        console.log('Selected route:', route);
         setSelectedRoute(route);
         // Calculate reserved seats based on booked_seats
         const reserved = [];
@@ -155,6 +168,11 @@ const Reservation = () => {
             return;
         }
 
+        if (!pickupLocation || !dropoffLocation) {
+            setError('Por favor ingresa los lugares de recogida y destino');
+            return;
+        }
+
         // Check if user has a phone number first
         if (!userHasPhone) {
             openPhoneForm();
@@ -165,21 +183,29 @@ const Reservation = () => {
         try {
             setLoading(true);
             const token = localStorage.getItem('token');
-            await axios.post(
+
+            // Debug log to check the request data
+            const requestData = {
+                routeId: selectedRoute.id,
+                reservationDate: selectedDate.toISOString().split('T')[0],
+                seatNumber: selectedSeat,
+                pickupLocation,
+                dropoffLocation
+            };
+            console.log('Reservation request data:', requestData);
+
+            const response = await axios.post(
                 `${process.env.REACT_APP_API_URL}/api/reservations`,
-                {
-                    routeId: selectedRoute.id,
-                    reservationDate: selectedDate.toISOString().split('T')[0],
-                    seatNumber: selectedSeat
-                },
+                requestData,
                 {
                     headers: { Authorization: `Bearer ${token}` }
                 }
             );
+            console.log('Reservation response:', response.data);
             navigate('/my-bookings');
         } catch (error) {
+            console.error('Error details:', error.response?.data);
             setError(error.response?.data?.message || 'Error al crear la reserva');
-            console.error('Error:', error);
         } finally {
             setLoading(false);
         }
@@ -218,6 +244,7 @@ const Reservation = () => {
     };
 
     const renderStepContent = (step) => {
+        console.log('Step:', step);
         switch (step) {
             case 0:
                 return (
@@ -242,104 +269,130 @@ const Reservation = () => {
                             Fecha seleccionada: {selectedDate.toLocaleDateString()}
                         </Typography>
 
-                        {loading ? (
-                            <Box display="flex" justifyContent="center" mt={4}>
-                                <CircularProgress />
-                            </Box>
-                        ) : (
-                            <Grid container spacing={3}>
-                                {routes.map((route) => (
-                                    <Grid item xs={12} key={route.id}>
-                                        <Card
-                                            sx={{
-                                                border: selectedRoute?.id === route.id ? '2px solid #1976d2' : 'none',
-                                                cursor: 'pointer'
-                                            }}
-                                            onClick={() => handleRouteSelect(route)}
-                                        >
-                                            <CardContent>
-                                                <Typography variant="h6">
-                                                    {route.origin} → {route.destination}
-                                                </Typography>
-                                                <Typography>
-                                                    Salida: {new Date(`2000-01-01T${route.departure_time}`).toLocaleTimeString()}
-                                                </Typography>
-                                                <Typography>
-                                                    Asientos Disponibles: {route.available_seats}
-                                                </Typography>
-                                                <Typography>
-                                                    Precio: ${route.price}
-                                                </Typography>
-
-                                                {selectedRoute?.id === route.id && (
-                                                    <>
-                                                        <Divider sx={{ my: 2 }} />
-                                                        <Typography variant="subtitle1" gutterBottom>
-                                                            Selecciona un asiento:
-                                                        </Typography>
-                                                        <Grid container spacing={1}>
-                                                            {availableSeats.map((seat) => (
-                                                                <Grid item xs={2} sm={1} key={seat}>
-                                                                    <Card
-                                                                        onClick={(e) => {
-                                                                            e.stopPropagation();
-                                                                            handleSeatSelect(seat);
-                                                                        }}
-                                                                        sx={{
-                                                                            cursor: reservedSeats.includes(seat) ? 'not-allowed' : 'pointer',
-                                                                            bgcolor: reservedSeats.includes(seat)
-                                                                                ? 'grey.300'
-                                                                                : selectedSeat === seat
-                                                                                    ? 'primary.main'
-                                                                                    : 'background.paper',
-                                                                            color: selectedSeat === seat ? 'white' : 'inherit',
-                                                                            textAlign: 'center',
-                                                                            p: 1,
-                                                                            position: 'relative'
-                                                                        }}
-                                                                    >
-                                                                        <Typography>Asiento {seat}</Typography>
-                                                                        {reservedSeats.includes(seat) && (
-                                                                            <Typography
-                                                                                variant="caption"
-                                                                                sx={{
-                                                                                    position: 'absolute',
-                                                                                    top: 0,
-                                                                                    left: 0,
-                                                                                    right: 0,
-                                                                                    bgcolor: 'error.main',
-                                                                                    color: 'white',
-                                                                                    fontSize: '0.7rem',
-                                                                                    py: 0.5
-                                                                                }}
-                                                                            >
-                                                                                Reservado
-                                                                            </Typography>
-                                                                        )}
-                                                                    </Card>
-                                                                </Grid>
-                                                            ))}
-                                                        </Grid>
-                                                    </>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-                                    </Grid>
-                                ))}
+                        <Grid container spacing={3}>
+                            <Grid item xs={12}>
+                                <TextField
+                                    fullWidth
+                                    label="Lugar de recogida"
+                                    value={pickupLocation}
+                                    onChange={(e) => setPickupLocation(e.target.value)}
+                                    margin="normal"
+                                    required
+                                />
+                                <TextField
+                                    fullWidth
+                                    label="Lugar de destino"
+                                    value={dropoffLocation}
+                                    onChange={(e) => setDropoffLocation(e.target.value)}
+                                    margin="normal"
+                                    required
+                                />
                             </Grid>
-                        )}
+                            {loading ? (
+                                <Box display="flex" justifyContent="center" mt={4}>
+                                    <CircularProgress />
+                                </Box>
+                            ) : (
+                                <Grid container spacing={3}>
+                                    {routes.map((route) => (
+                                        <Grid item xs={12} key={route.id}>
+                                            <Card
+                                                sx={{
+                                                    border: selectedRoute?.id === route.id ? '2px solid #1976d2' : 'none',
+                                                    cursor: 'pointer'
+                                                }}
+                                                onClick={() => handleRouteSelect(route)}
+                                            >
+                                                <CardContent>
+                                                    <Typography variant="h6">
+                                                        {route.origin} → {route.destination}
+                                                    </Typography>
+                                                    <Typography>
+                                                        Salida: {new Date(`2000-01-01T${route.departure_time}`).toLocaleTimeString()}
+                                                    </Typography>
+                                                    <Typography>
+                                                        Asientos Disponibles: {route.available_seats}
+                                                    </Typography>
+                                                    <Typography>
+                                                        Precio: {formatPrice(route.price)}
+                                                    </Typography>
 
-                        {selectedRoute && selectedSeat && (
-                            <Box mt={3} display="flex" justifyContent="center">
-                                <Button
-                                    variant="contained"
-                                    onClick={() => setActiveStep(2)}
-                                    disabled={loading}
-                                >
-                                    Continuar
-                                </Button>
-                            </Box>
-                        )}
+                                                    {selectedRoute?.id === route.id && (
+                                                        <>
+                                                            <Divider sx={{ my: 2 }} />
+                                                            <Typography variant="subtitle1" gutterBottom>
+                                                                Selecciona un asiento:
+                                                            </Typography>
+                                                            <Grid container spacing={1}>
+                                                                {availableSeats.map((seat) => (
+                                                                    <Grid item xs={2} sm={1} key={seat}>
+                                                                        <Card
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleSeatSelect(seat);
+                                                                            }}
+                                                                            sx={{
+                                                                                cursor: reservedSeats.includes(seat) ? 'not-allowed' : 'pointer',
+                                                                                bgcolor: reservedSeats.includes(seat)
+                                                                                    ? 'grey.300'
+                                                                                    : selectedSeat === seat
+                                                                                        ? 'primary.main'
+                                                                                        : 'background.paper',
+                                                                                color: selectedSeat === seat ? 'white' : 'inherit',
+                                                                                textAlign: 'center',
+                                                                                p: 1,
+                                                                                position: 'relative'
+                                                                            }}
+                                                                        >
+                                                                            <Typography>Asiento {seat}</Typography>
+                                                                            {reservedSeats.includes(seat) && (
+                                                                                <Typography
+                                                                                    variant="caption"
+                                                                                    sx={{
+                                                                                        position: 'absolute',
+                                                                                        top: 0,
+                                                                                        left: 0,
+                                                                                        right: 0,
+                                                                                        bgcolor: 'error.main',
+                                                                                        color: 'white',
+                                                                                        fontSize: '0.7rem',
+                                                                                        py: 0.5
+                                                                                    }}
+                                                                                >
+                                                                                    Reservado
+                                                                                </Typography>
+                                                                            )}
+                                                                        </Card>
+                                                                    </Grid>
+                                                                ))}
+                                                            </Grid>
+                                                        </>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        </Grid>
+                                    ))}
+                                </Grid>
+                            )}
+
+                            {selectedRoute && selectedSeat && (
+                                <Box mt={3} display="flex" justifyContent="center">
+                                    <Button
+                                        variant="contained"
+                                        onClick={() => {
+                                            if (!pickupLocation || !dropoffLocation) {
+                                                setError('Por favor ingresa los lugares de recogida y destino');
+                                                return;
+                                            }
+                                            setActiveStep(2);
+                                        }}
+                                        disabled={loading}
+                                    >
+                                        Continuar
+                                    </Button>
+                                </Box>
+                            )}
+                        </Grid>
                     </Box>
                 );
 
@@ -364,7 +417,13 @@ const Reservation = () => {
                                     Asiento: {selectedSeat}
                                 </Typography>
                                 <Typography>
-                                    Precio: ${selectedRoute.price}
+                                    Precio: {formatPrice(selectedRoute.price)}
+                                </Typography>
+                                <Typography>
+                                    Lugar de recogida: {pickupLocation}
+                                </Typography>
+                                <Typography>
+                                    Lugar de destino: {dropoffLocation}
                                 </Typography>
                             </CardContent>
                         </Card>
@@ -428,20 +487,41 @@ const Reservation = () => {
                                     <CardContent>
                                         <Grid container spacing={2}>
                                             <Grid item xs={12} md={8}>
-                                                <Typography variant="h6">
+                                                <Typography variant="h6" gutterBottom>
                                                     {booking.origin} → {booking.destination}
                                                 </Typography>
-                                                <Typography color="text.secondary">
-                                                    Fecha: {new Date(booking.reservation_date).toLocaleDateString()}
-                                                </Typography>
-                                                <Typography color="text.secondary">
-                                                    Salida: {new Date(`2000-01-01T${booking.departure_time}`).toLocaleTimeString()}
-                                                </Typography>
-                                                <Typography color="text.secondary">
-                                                    Asientos: {booking.seat_number}
-                                                </Typography>
-                                                <Typography color="text.secondary">
-                                                    Precio: ${booking.price}
+                                                <Grid container spacing={1}>
+                                                    <Grid item xs={12} sm={6}>
+                                                        <Typography color="text.secondary">
+                                                            Fecha: {new Date(booking.reservation_date).toLocaleDateString()}
+                                                        </Typography>
+                                                        <Typography color="text.secondary">
+                                                            Salida: {new Date(`2000-01-01T${booking.departure_time}`).toLocaleTimeString()}
+                                                        </Typography>
+                                                        <Typography color="text.secondary">
+                                                            Asiento: {booking.seat_number}
+                                                        </Typography>
+                                                    </Grid>
+                                                    <Grid item xs={12} sm={6}>
+                                                        <Typography color="text.secondary">
+                                                            Dirección de recogida: {booking.pickup_location}
+                                                        </Typography>
+                                                        <Typography color="text.secondary">
+                                                            Dirección de llegada: {booking.dropoff_location}
+                                                        </Typography>
+                                                        <Typography color="text.secondary">
+                                                            Precio por asiento: {formatPrice(booking.price)}
+                                                        </Typography>
+                                                        <Typography color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                                                            Total: {formatPrice(booking.price * booking.seat_number)}
+                                                        </Typography>
+                                                    </Grid>
+                                                </Grid>
+                                                <Typography
+                                                    color={booking.status === 'confirmed' ? 'success.main' : booking.status === 'cancelled' ? 'error.main' : 'warning.main'}
+                                                    sx={{ mt: 1 }}
+                                                >
+                                                    Estado: {booking.status === 'confirmed' ? 'Confirmada' : booking.status === 'cancelled' ? 'Cancelada' : 'Pendiente'}
                                                 </Typography>
                                             </Grid>
                                             <Grid item xs={12} md={4} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
@@ -453,11 +533,6 @@ const Reservation = () => {
                                                     >
                                                         Cancelar Reserva
                                                     </Button>
-                                                )}
-                                                {booking.status === 'cancelled' && (
-                                                    <Typography color="error">
-                                                        Cancelada
-                                                    </Typography>
                                                 )}
                                             </Grid>
                                         </Grid>

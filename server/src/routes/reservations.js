@@ -9,11 +9,11 @@ const { notifyNewReservation, notifyCancelledReservation } = require('../service
 // Create a new reservation
 router.post('/', verifyToken, async (req, res) => {
     try {
-        const { routeId, reservationDate, seatNumber, status = 'confirmed' } = req.body;
+        const { routeId, reservationDate, seatNumber, pickupLocation, dropoffLocation, status = 'confirmed' } = req.body;
         const userId = req.user.id;
-
+        console.log(req.body);
         // Validate required fields
-        if (!routeId || !reservationDate || !seatNumber) {
+        if (!routeId || !reservationDate || !seatNumber || !pickupLocation || !dropoffLocation) {
             return res.status(400).json({ message: 'Missing required fields' });
         }
 
@@ -61,8 +61,8 @@ router.post('/', verifyToken, async (req, res) => {
 
         // Create the reservation
         const [result] = await pool.query(
-            'INSERT INTO reservations (user_id, route_id, reservation_date, seat_number, status) VALUES (?, ?, ?, ?, ?)',
-            [userId, routeId, reservationDate, seatNumber, status]
+            'INSERT INTO reservations (user_id, route_id, reservation_date, seat_number, pickup_location, dropoff_location, status) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [userId, routeId, reservationDate, seatNumber, pickupLocation, dropoffLocation, status]
         );
 
         const reservationId = result.insertId;
@@ -105,7 +105,9 @@ router.get('/user', verifyToken, async (req, res) => {
         rt.origin,
         rt.destination,
         rt.departure_time,
-        rt.price
+        rt.price,
+        r.pickup_location,
+        r.dropoff_location
       FROM reservations r
       JOIN routes rt ON r.route_id = rt.id
       WHERE r.user_id = ?

@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS reservations (
     route_id INT NOT NULL,
     reservation_date DATE NOT NULL,
     seat_number INT NOT NULL,
+    pickup_location VARCHAR(255) NOT NULL,
+    dropoff_location VARCHAR(255) NOT NULL,
     status ENUM('pending', 'confirmed', 'cancelled') DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
